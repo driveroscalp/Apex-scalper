@@ -1,0 +1,1230 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>APEX SCALPER — XTB</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --gold:#F5C842;--gold-dim:#C9A227;--cyan:#00E5FF;--red:#FF4560;--green:#00E396;--orange:#FF9500;
+  --bg:#080B10;--bg2:#0D1117;--bg3:#131A24;--bg4:#1A2333;
+  --border:rgba(245,200,66,0.15);--text:#E8EDF5;--muted:#6B7A99;
+  --font-head:'Bebas Neue',sans-serif;--font-mono:'Space Mono',monospace;--font-body:'DM Sans',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-body);min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;
+  background-image:linear-gradient(rgba(245,200,66,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(245,200,66,0.02) 1px,transparent 1px);
+  background-size:40px 40px;pointer-events:none;z-index:0;}
+
+/* HEADER */
+header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;
+  padding:10px 16px;background:rgba(13,17,23,0.98);border-bottom:1px solid var(--border);}
+.logo{font-family:var(--font-head);font-size:22px;letter-spacing:4px;color:var(--gold);text-shadow:0 0 20px rgba(245,200,66,0.4);}
+.logo span{color:var(--cyan);}
+.logo small{font-size:10px;color:var(--muted);letter-spacing:2px;margin-left:6px;}
+.hright{display:flex;align-items:center;gap:6px;}
+.bolivia-time{font-family:var(--font-mono);font-size:11px;color:var(--text);padding:4px 10px;
+  background:var(--bg3);border:1px solid var(--border);border-radius:8px;}
+.bolivia-time small{color:var(--muted);font-size:9px;display:block;text-align:center;}
+
+/* REFRESH BAR */
+.refresh-bar{display:flex;align-items:center;justify-content:space-between;padding:5px 16px;
+  background:rgba(0,0,0,0.4);border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:9px;color:var(--muted);}
+.live-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite;display:inline-block;margin-right:5px;}
+.refresh-btn{padding:2px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg4);
+  color:var(--gold);font-family:var(--font-mono);font-size:9px;cursor:pointer;}
+
+/* ═══ VERDICT CARD — the star of the show ═══ */
+.verdict-wrap{padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);}
+.verdict-card{border-radius:14px;padding:16px;position:relative;overflow:hidden;}
+.verdict-card.v-operate{background:rgba(0,227,150,0.08);border:2px solid rgba(0,227,150,0.4);}
+.verdict-card.v-wait{background:rgba(245,200,66,0.06);border:2px solid rgba(245,200,66,0.3);}
+.verdict-card.v-watch{background:rgba(0,229,255,0.06);border:2px solid rgba(0,229,255,0.3);}
+.verdict-card.v-no{background:rgba(255,69,96,0.06);border:2px solid rgba(255,69,96,0.3);}
+.verdict-card.v-prep{background:rgba(107,122,153,0.08);border:2px solid rgba(107,122,153,0.3);}
+.verdict-card.v-loading{background:var(--bg3);border:2px solid var(--border);}
+.verdict-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.verdict-label{font-family:var(--font-head);font-size:28px;letter-spacing:3px;}
+.vl-operate{color:var(--green);}
+.vl-wait{color:var(--gold);}
+.vl-watch{color:var(--cyan);}
+.vl-no{color:var(--red);}
+.vl-prep{color:var(--muted);}
+.verdict-strategy{font-family:var(--font-mono);font-size:10px;letter-spacing:2px;padding:4px 10px;border-radius:6px;text-align:right;}
+.vs-operate{background:rgba(0,227,150,0.15);color:var(--green);}
+.vs-wait{background:rgba(245,200,66,0.15);color:var(--gold);}
+.vs-watch{background:rgba(0,229,255,0.15);color:var(--cyan);}
+.vs-no{background:rgba(255,69,96,0.15);color:var(--red);}
+.vs-prep{background:rgba(107,122,153,0.15);color:var(--muted);}
+.verdict-detail{font-size:12px;line-height:1.6;color:var(--text);margin-bottom:10px;}
+.verdict-levels{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.vl-item{background:rgba(0,0,0,0.3);border-radius:8px;padding:8px 10px;text-align:center;}
+.vl-item-label{font-family:var(--font-mono);font-size:8px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;}
+.vl-item-val{font-family:var(--font-head);font-size:18px;}
+.verdict-action{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,0.3);
+  font-family:var(--font-mono);font-size:10px;line-height:1.6;letter-spacing:.5px;}
+
+/* DESKTOP GRID */
+.desktop-wrap{display:grid;grid-template-columns:220px 1fr 300px;position:relative;z-index:1;
+  height:calc(100vh - 120px);}
+.d-col{overflow-y:auto;}
+.d-col::-webkit-scrollbar{width:3px;}
+.d-col::-webkit-scrollbar-thumb{background:var(--border);}
+.d-left{border-right:1px solid var(--border);background:var(--bg2);}
+.d-right{border-left:1px solid var(--border);background:var(--bg2);}
+.d-center{display:flex;flex-direction:column;overflow:hidden;}
+
+/* MINI SIGNAL ROW */
+.mini-signals{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);flex-shrink:0;}
+.msc{background:var(--bg2);padding:12px 14px;position:relative;}
+.msc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+.msc-g::before{background:linear-gradient(90deg,var(--gold),transparent);}
+.msc-c::before{background:linear-gradient(90deg,var(--cyan),transparent);}
+.msc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.msc-name{font-family:var(--font-head);font-size:15px;letter-spacing:2px;}
+.mn-g{color:var(--gold);}.mn-c{color:var(--cyan);}
+.msc-price{font-family:var(--font-head);font-size:20px;}
+.msc-chg{font-family:var(--font-mono);font-size:9px;}
+.bias{font-family:var(--font-mono);font-size:8px;letter-spacing:1px;padding:2px 7px;border-radius:4px;font-weight:700;}
+.bl{background:rgba(0,227,150,0.15);color:var(--green);border:1px solid rgba(0,227,150,0.3);}
+.bs{background:rgba(255,69,96,0.15);color:var(--red);border:1px solid rgba(255,69,96,0.3);}
+.bn{background:rgba(107,122,153,0.15);color:var(--muted);border:1px solid rgba(107,122,153,0.2);}
+.bw{background:rgba(245,200,66,0.15);color:var(--gold);border:1px solid rgba(245,200,66,0.3);}
+.msc-inds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;}
+.mi{display:flex;flex-direction:column;gap:1px;}
+.mi-lbl{font-family:var(--font-mono);font-size:7px;color:var(--muted);letter-spacing:1px;}
+.mi-val{font-family:var(--font-head);font-size:15px;}
+.vg{color:var(--green);}.vr{color:var(--red);}.vau{color:var(--gold);}.vc{color:var(--cyan);}.vm{color:var(--muted);}
+.msc-sl{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-top:8px;
+  background:var(--bg4);border-radius:7px;padding:7px 9px;border:1px solid var(--border);}
+.sl-i{display:flex;flex-direction:column;gap:1px;}
+.sl-lbl{font-family:var(--font-mono);font-size:7px;color:var(--muted);}
+.sl-val{font-family:var(--font-head);font-size:13px;}
+
+/* TABS */
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;overflow-x:auto;}
+.tabs::-webkit-scrollbar{height:2px;}
+.tab{padding:9px 13px;font-family:var(--font-mono);font-size:9px;color:var(--muted);cursor:pointer;
+  border-bottom:2px solid transparent;letter-spacing:1px;transition:all .2s;white-space:nowrap;flex-shrink:0;}
+.tab.active{color:var(--gold);border-bottom-color:var(--gold);}
+.tab-content{flex:1;overflow-y:auto;padding:14px;display:none;}
+.tab-content.active{display:block;}
+.tab-content::-webkit-scrollbar{width:3px;}
+.tab-content::-webkit-scrollbar-thumb{background:var(--border);}
+
+/* CARDS */
+.card{background:var(--bg3);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:12px;}
+.ct{font-family:var(--font-head);font-size:14px;letter-spacing:2px;color:var(--gold);margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.badge{font-size:8px;padding:2px 6px;border-radius:4px;background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.2);color:var(--gold-dim);letter-spacing:1px;}
+.badge-g{background:rgba(0,227,150,0.1);border-color:rgba(0,227,150,0.2);color:var(--green);}
+.badge-c{background:rgba(0,229,255,0.1);border-color:rgba(0,229,255,0.2);color:var(--cyan);}
+.badge-r{background:rgba(255,69,96,0.1);border-color:rgba(255,69,96,0.2);color:var(--red);}
+.steps{display:flex;flex-direction:column;gap:8px;}
+.step{display:flex;gap:10px;align-items:flex-start;font-size:12px;line-height:1.5;}
+.sn{font-family:var(--font-mono);font-size:9px;color:var(--bg);background:var(--gold);min-width:18px;height:18px;
+  border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;}
+.sn.c{background:var(--cyan);}
+.sn.g{background:var(--green);}
+.st strong{color:var(--gold);}
+.st strong.c{color:var(--cyan);}
+.st strong.g{color:var(--green);}
+
+/* WIN RATE BADGE */
+.wr-badge{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;
+  background:rgba(0,227,150,0.1);border:1px solid rgba(0,227,150,0.3);margin-bottom:10px;}
+.wr-label{font-family:var(--font-mono);font-size:9px;color:var(--muted);letter-spacing:1px;}
+.wr-val{font-family:var(--font-head);font-size:16px;color:var(--green);}
+
+/* RISK */
+.calc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+.calc-lbl{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:4px;letter-spacing:1px;}
+.calc-inp{width:100%;background:var(--bg4);border:1px solid var(--border);border-radius:8px;
+  padding:7px 10px;color:var(--text);font-family:var(--font-mono);font-size:12px;outline:none;}
+.calc-inp:focus{border-color:rgba(245,200,66,0.4);}
+.calc-res{background:var(--bg4);border:1px solid var(--border);border-radius:10px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.cr-lbl{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:2px;}
+.cr-val{font-family:var(--font-head);font-size:20px;}
+.calc-note{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-top:10px;padding:8px;
+  background:rgba(245,200,66,0.04);border:1px solid rgba(245,200,66,0.1);border-radius:6px;line-height:1.6;}
+.rt{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:10px;}
+.rt th{text-align:left;padding:6px 9px;color:var(--muted);font-size:8px;letter-spacing:1px;border-bottom:1px solid var(--border);}
+.rt td{padding:7px 9px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.rt tr:hover td{background:var(--bg4);}
+.rt td:first-child{color:var(--muted);}
+.chip{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;}
+.chip-g{background:rgba(0,227,150,0.15);color:var(--green);}
+
+/* CHECKLIST */
+.ptitle{font-family:var(--font-head);font-size:11px;letter-spacing:3px;color:var(--muted);padding:11px 14px 7px;border-bottom:1px solid var(--border);}
+.cl{padding:10px;display:flex;flex-direction:column;gap:5px;}
+.ci{display:flex;align-items:flex-start;gap:9px;padding:7px 9px;border-radius:7px;
+  background:var(--bg3);border:1px solid transparent;cursor:pointer;transition:all .2s;user-select:none;}
+.ci:hover{border-color:var(--border);}
+.ci.checked{background:rgba(0,227,150,0.07);border-color:rgba(0,227,150,0.25);}
+.ci.checked .cb{background:var(--green);border-color:var(--green);}
+.ci.checked .cb::after{opacity:1;}
+.cb{width:15px;height:15px;border-radius:3px;flex-shrink:0;border:1.5px solid var(--muted);margin-top:2px;position:relative;}
+.cb::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--bg);opacity:0;}
+.clabel{font-size:11px;line-height:1.4;}
+.clabel small{display:block;color:var(--muted);font-size:9px;margin-top:1px;}
+
+/* SESSIONS */
+.sess-block{padding:10px 14px;border-top:1px solid var(--border);}
+.stitle{font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:8px;letter-spacing:2px;}
+.srow{display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:9px;margin-bottom:1px;}
+.sname{color:var(--muted);}
+.sstat{font-size:8px;padding:2px 6px;border-radius:8px;font-weight:600;letter-spacing:1px;}
+.sact{background:rgba(0,227,150,0.15);color:var(--green);}
+.scls{background:rgba(107,122,153,0.1);color:var(--muted);}
+.sdet{font-family:var(--font-mono);font-size:9px;margin-bottom:7px;}
+
+/* CHAT */
+.chat-wrap{display:flex;flex-direction:column;height:100%;}
+.chat-hdr{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.chat-title{font-family:var(--font-head);font-size:13px;letter-spacing:3px;}
+.ai-st{display:flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:9px;color:var(--green);}
+.asd{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+.chat-msgs{flex:1;overflow-y:auto;padding:11px;display:flex;flex-direction:column;gap:9px;}
+.chat-msgs::-webkit-scrollbar{width:3px;}
+.chat-msgs::-webkit-scrollbar-thumb{background:var(--border);}
+.msg{display:flex;gap:7px;}
+.msg.user{flex-direction:row-reverse;}
+.mav{width:25px;height:25px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.mav-ai{background:linear-gradient(135deg,var(--gold-dim),var(--gold));color:var(--bg);font-family:var(--font-head);font-size:9px;}
+.mav-u{background:var(--bg4);border:1px solid var(--border);color:var(--muted);font-size:11px;}
+.mb{max-width:210px;padding:8px 11px;border-radius:12px;font-size:11px;line-height:1.6;}
+.mb-ai{background:var(--bg3);border:1px solid var(--border);border-radius:4px 12px 12px 12px;}
+.mb-u{background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.2);border-radius:12px 4px 12px 12px;}
+.mtime{font-family:var(--font-mono);font-size:8px;color:var(--muted);margin-top:2px;text-align:right;}
+.ldots{display:inline-flex;gap:3px;align-items:center;padding:3px 0;}
+.ldots span{width:4px;height:4px;border-radius:50%;background:var(--gold);animation:db 1.2s infinite ease-in-out;}
+.ldots span:nth-child(2){animation-delay:.15s;}
+.ldots span:nth-child(3){animation-delay:.3s;}
+@keyframes db{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+.qps{padding:7px 9px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:4px;flex-shrink:0;}
+.qp{font-family:var(--font-mono);font-size:8px;padding:4px 8px;border-radius:20px;cursor:pointer;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg3);transition:all .15s;white-space:nowrap;}
+.qp:hover{border-color:var(--gold);color:var(--gold);}
+.cin-wrap{padding:9px 9px 11px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:6px;align-items:flex-end;}
+.cin{flex:1;background:var(--bg3);border:1px solid var(--border);border-radius:9px;
+  padding:7px 11px;color:var(--text);font-family:var(--font-body);font-size:12px;
+  resize:none;outline:none;min-height:36px;max-height:90px;}
+.cin:focus{border-color:rgba(245,200,66,0.4);}
+.cin::placeholder{color:var(--muted);}
+.sbtn{width:36px;height:36px;border-radius:9px;cursor:pointer;
+  background:linear-gradient(135deg,var(--gold-dim),var(--gold));border:none;
+  display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0;}
+.sbtn:hover{transform:scale(1.05);}
+.sbtn:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.sbtn svg{width:14px;height:14px;fill:var(--bg);}
+
+/* ALERTS */
+@keyframes slideDown{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes flashAnim{0%,100%{opacity:0}50%{opacity:1}}
+
+/* MOBILE */
+@media(max-width:767px){
+  .desktop-wrap{display:none;}
+  .bnav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--bg2);border-top:1px solid var(--border);display:flex;}
+  .nb{flex:1;display:flex;flex-direction:column;align-items:center;padding:8px 2px 10px;gap:2px;
+    cursor:pointer;font-family:var(--font-mono);font-size:7px;color:var(--muted);
+    border:none;background:transparent;transition:color .2s;letter-spacing:.3px;}
+  .nb.active{color:var(--gold);}
+  .nb svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .mob-pages{display:block;}
+  .mob-page{display:none;padding:10px;padding-bottom:130px;}
+  .mob-page.active{display:block;}
+  .fab{position:fixed;bottom:70px;right:13px;z-index:200;width:50px;height:50px;border-radius:50%;
+    background:linear-gradient(135deg,var(--gold-dim),var(--gold));border:none;cursor:pointer;
+    box-shadow:0 4px 20px rgba(245,200,66,0.4);display:flex;align-items:center;justify-content:center;}
+  .fab svg{width:20px;height:20px;stroke:var(--bg);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .fab-badge{position:absolute;top:-2px;right:-2px;width:16px;height:16px;border-radius:50%;
+    background:var(--cyan);color:var(--bg);font-family:var(--font-mono);font-size:8px;font-weight:700;
+    display:flex;align-items:center;justify-content:center;}
+  .chat-modal{display:none;position:fixed;inset:0;z-index:300;background:rgba(8,11,16,.75);backdrop-filter:blur(4px);}
+  .chat-modal.open{display:flex;flex-direction:column;justify-content:flex-end;}
+  .cmi{background:var(--bg2);border-top:1px solid var(--border);border-radius:18px 18px 0 0;
+    height:90vh;display:flex;flex-direction:column;animation:slideDown .3s ease;}
+  .cmi .mb{max-width:76vw;}
+  .modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);flex-shrink:0;}
+  .modal-title{font-family:var(--font-head);font-size:14px;letter-spacing:3px;color:var(--gold);}
+  .modal-cls{background:var(--bg4);border:1px solid var(--border);border-radius:50%;width:28px;height:28px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted);font-size:16px;}
+  .verdict-levels{grid-template-columns:repeat(3,1fr);}
+}
+@media(min-width:768px){
+  .bnav,.fab,.chat-modal,.mob-pages{display:none!important;}
+  .verdict-wrap{display:none;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">APEX<span>·</span>SCALPER <small>XTB · BOLIVIA</small></div>
+  <div class="hright">
+    <div class="bolivia-time">
+      <span id="bolivia-clock">--:--</span>
+      <small>SANTA CRUZ UTC-4</small>
+    </div>
+  </div>
+</header>
+
+<div class="refresh-bar">
+  <span><div class="live-dot"></div><span id="data-status">Cargando datos...</span></span>
+  <span style="display:flex;align-items:center;gap:8px;">
+    <span id="last-update"></span>
+    <button class="refresh-btn" onclick="fetchAllData()">⟳ Actualizar</button>
+  </span>
+</div>
+
+<!-- VERDICT — mobile only (desktop shows in center panel) -->
+<div class="verdict-wrap" id="mobile-verdict">
+  <div class="verdict-card v-loading" id="verdict-mob">
+    <div class="verdict-top">
+      <div class="verdict-label vl-wait">CARGANDO...</div>
+    </div>
+    <div class="verdict-detail">Obteniendo datos del mercado...</div>
+  </div>
+</div>
+
+<!-- ══ DESKTOP ══ -->
+<div class="desktop-wrap">
+
+  <!-- LEFT -->
+  <div class="d-col d-left">
+    <div class="ptitle">CHECKLIST</div>
+    <div class="cl" id="cl-d"></div>
+    <div class="sess-block">
+      <div class="stitle">SESIONES (UTC)</div>
+      <div id="sess-d"></div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div class="d-center">
+    <!-- VERDICT DESKTOP -->
+    <div style="padding:12px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;">
+      <div class="verdict-card v-loading" id="verdict-d">
+        <div class="verdict-top">
+          <div class="verdict-label vl-wait">CARGANDO...</div>
+        </div>
+        <div class="verdict-detail">Obteniendo datos del mercado...</div>
+      </div>
+    </div>
+    <!-- MINI SIGNALS -->
+    <div class="mini-signals">
+      <div class="msc msc-g">
+        <div class="msc-top">
+          <div><div class="msc-name mn-g">GOLD</div><div class="msc-price" id="p-gold">—</div><div class="msc-chg" id="c-gold"></div></div>
+          <div class="bias bn" id="b-gold">—</div>
+        </div>
+        <div class="msc-inds">
+          <div class="mi"><div class="mi-lbl">RSI</div><div class="mi-val" id="r-gold">—</div></div>
+          <div class="mi"><div class="mi-lbl">EMA50</div><div class="mi-val vau" id="e-gold">—</div></div>
+          <div class="mi"><div class="mi-lbl">ATR</div><div class="mi-val vc" id="a-gold">—</div></div>
+        </div>
+        <div class="msc-sl">
+          <div class="sl-i"><div class="sl-lbl">SL</div><div class="sl-val vr" id="sl-gold">—</div></div>
+          <div class="sl-i"><div class="sl-lbl">TP1</div><div class="sl-val vg" id="t1-gold">—</div></div>
+          <div class="sl-i"><div class="sl-lbl">TP2</div><div class="sl-val vg" id="t2-gold">—</div></div>
+        </div>
+      </div>
+      <div class="msc msc-c">
+        <div class="msc-top">
+          <div><div class="msc-name mn-c">US100</div><div class="msc-price" id="p-us100">—</div><div class="msc-chg" id="c-us100"></div></div>
+          <div class="bias bn" id="b-us100">—</div>
+        </div>
+        <div class="msc-inds">
+          <div class="mi"><div class="mi-lbl">RSI</div><div class="mi-val" id="r-us100">—</div></div>
+          <div class="mi"><div class="mi-lbl">EMA50</div><div class="mi-val vc" id="e-us100">—</div></div>
+          <div class="mi"><div class="mi-lbl">ATR</div><div class="mi-val vau" id="a-us100">—</div></div>
+        </div>
+        <div class="msc-sl">
+          <div class="sl-i"><div class="sl-lbl">SL</div><div class="sl-val vr" id="sl-us100">—</div></div>
+          <div class="sl-i"><div class="sl-lbl">TP1</div><div class="sl-val vg" id="t1-us100">—</div></div>
+          <div class="sl-i"><div class="sl-lbl">TP2</div><div class="sl-val vg" id="t2-us100">—</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- TABS -->
+    <div style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('e',this)">ESTRATEGIAS</div>
+        <div class="tab" onclick="switchTab('r',this)">RIESGO XTB</div>
+        <div class="tab" onclick="switchTab('xtb',this)">ALERTAS XTB</div>
+        <div class="tab" onclick="switchTab('i',this)">INDICADORES</div>
+      </div>
+      <div class="tab-content active" id="tc-e"></div>
+      <div class="tab-content" id="tc-r"></div>
+      <div class="tab-content" id="tc-xtb"></div>
+      <div class="tab-content" id="tc-i"></div>
+    </div>
+  </div>
+
+  <!-- RIGHT CHAT -->
+  <div class="d-col d-right">
+    <div class="chat-wrap" style="height:100%;">
+      <div class="chat-hdr">
+        <div class="chat-title">APEX AI</div>
+        <div class="ai-st"><div class="asd"></div>ONLINE</div>
+      </div>
+      <div class="chat-msgs" id="msgs-d"></div>
+      <div class="qps" id="qps-d"></div>
+      <div class="cin-wrap">
+        <textarea class="cin" id="ci-d" placeholder="¿Opero ahora?" rows="1" onkeydown="hk(event,'d')" oninput="ar(this)"></textarea>
+        <button class="sbtn" id="sb-d" onclick="send('d')"><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MOBILE ══ -->
+<div class="mob-pages">
+
+  <!-- SEÑALES -->
+  <div class="mob-page active" id="pg-signals">
+    <!-- GOLD -->
+    <div class="card" style="border-top:2px solid var(--gold);margin-bottom:10px;">
+      <div class="msc-top"><div><div class="msc-name mn-g">GOLD</div><div class="msc-price" id="p-gold-m">—</div><div class="msc-chg" id="c-gold-m"></div></div><div class="bias bn" id="b-gold-m">—</div></div>
+      <div class="msc-inds">
+        <div class="mi"><div class="mi-lbl">RSI(14)</div><div class="mi-val" id="r-gold-m">—</div></div>
+        <div class="mi"><div class="mi-lbl">EMA50</div><div class="mi-val vau" id="e-gold-m">—</div></div>
+        <div class="mi"><div class="mi-lbl">ATR(14)</div><div class="mi-val vc" id="a-gold-m">—</div></div>
+      </div>
+      <div class="msc-sl" style="margin-top:10px;">
+        <div class="sl-i"><div class="sl-lbl">SL</div><div class="sl-val vr" id="sl-gold-m">—</div></div>
+        <div class="sl-i"><div class="sl-lbl">TP1 (1.5×)</div><div class="sl-val vg" id="t1-gold-m">—</div></div>
+        <div class="sl-i"><div class="sl-lbl">TP2 (2.5×)</div><div class="sl-val vg" id="t2-gold-m">—</div></div>
+      </div>
+    </div>
+    <!-- US100 -->
+    <div class="card" style="border-top:2px solid var(--cyan);margin-bottom:10px;">
+      <div class="msc-top"><div><div class="msc-name mn-c">US100</div><div class="msc-price" id="p-us100-m">—</div><div class="msc-chg" id="c-us100-m"></div></div><div class="bias bn" id="b-us100-m">—</div></div>
+      <div class="msc-inds">
+        <div class="mi"><div class="mi-lbl">RSI(14)</div><div class="mi-val" id="r-us100-m">—</div></div>
+        <div class="mi"><div class="mi-lbl">EMA50</div><div class="mi-val vc" id="e-us100-m">—</div></div>
+        <div class="mi"><div class="mi-lbl">ATR(14)</div><div class="mi-val vau" id="a-us100-m">—</div></div>
+      </div>
+      <div class="msc-sl" style="margin-top:10px;">
+        <div class="sl-i"><div class="sl-lbl">SL</div><div class="sl-val vr" id="sl-us100-m">—</div></div>
+        <div class="sl-i"><div class="sl-lbl">TP1 (1.5×)</div><div class="sl-val vg" id="t1-us100-m">—</div></div>
+        <div class="sl-i"><div class="sl-lbl">TP2 (2.5×)</div><div class="sl-val vg" id="t2-us100-m">—</div></div>
+      </div>
+    </div>
+    <!-- Sessions -->
+    <div class="card"><div class="ct">SESIONES</div><div id="sess-m"></div></div>
+    <!-- Alert log -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div class="ct" style="margin-bottom:0;">🔔 ALERTAS</div>
+        <div onclick="toggleAlerts()" id="alert-toggle" style="width:32px;height:17px;border-radius:9px;background:var(--green);cursor:pointer;position:relative;">
+          <div id="toggle-knob" style="position:absolute;top:2px;right:2px;width:13px;height:13px;border-radius:50%;background:white;transition:all .2s;"></div>
+        </div>
+      </div>
+      <div id="log-m"></div>
+    </div>
+  </div>
+
+  <!-- ESTRATEGIAS -->
+  <div class="mob-page" id="pg-strategy"><div id="mob-est"></div></div>
+
+  <!-- RIESGO -->
+  <div class="mob-page" id="pg-risk"><div id="mob-rie"></div></div>
+
+  <!-- ALERTAS XTB -->
+  <div class="mob-page" id="pg-xtb"><div id="mob-xtb"></div></div>
+
+  <!-- CHECKLIST -->
+  <div class="mob-page" id="pg-check">
+    <div style="font-family:var(--font-head);font-size:12px;letter-spacing:3px;color:var(--muted);margin-bottom:10px;">CHECKLIST PRE-ENTRADA</div>
+    <div class="cl" id="cl-m" style="padding:0;"></div>
+  </div>
+
+</div>
+
+<!-- BOTTOM NAV -->
+<nav class="bnav">
+  <button class="nb active" onclick="showPg('signals',this)">
+    <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>SEÑALES
+  </button>
+  <button class="nb" onclick="showPg('strategy',this)">
+    <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>ESTRAT.
+  </button>
+  <button class="nb" onclick="showPg('risk',this)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>RIESGO
+  </button>
+  <button class="nb" onclick="showPg('xtb',this)">
+    <svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>ALERTAS
+  </button>
+  <button class="nb" onclick="showPg('check',this)">
+    <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>CHECK
+  </button>
+</nav>
+
+<!-- FAB -->
+<button class="fab" onclick="openChat()">
+  <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+  <div class="fab-badge">AI</div>
+</button>
+
+<!-- CHAT MODAL -->
+<div class="chat-modal" id="chatModal" onclick="bgClose(event)">
+  <div class="cmi">
+    <div class="modal-hdr">
+      <div class="modal-title">⚡ APEX AI</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="ai-st"><div class="asd"></div>ONLINE</div>
+        <div class="modal-cls" onclick="closeChat()">×</div>
+      </div>
+    </div>
+    <div class="chat-msgs" id="msgs-m" style="flex:1;overflow-y:auto;padding:11px;display:flex;flex-direction:column;gap:9px;"></div>
+    <div class="qps" id="qps-m"></div>
+    <div class="cin-wrap">
+      <textarea class="cin" id="ci-m" placeholder="¿Opero ahora?" rows="1" onkeydown="hk(event,'m')" oninput="ar(this)"></textarea>
+      <button class="sbtn" id="sb-m" onclick="send('m')"><svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// BOLIVIA CLOCK (UTC-4)
+// ══════════════════════════════════════════════
+function updateClock(){
+  const now=new Date();
+  const bTime=new Date(now.getTime()-4*60*60*1000);
+  const h=bTime.getUTCHours().toString().padStart(2,'0');
+  const m=bTime.getUTCMinutes().toString().padStart(2,'0');
+  const s=bTime.getUTCSeconds().toString().padStart(2,'0');
+  const el=document.getElementById('bolivia-clock');
+  if(el)el.textContent=`${h}:${m}:${s}`;
+}
+setInterval(updateClock,1000);updateClock();
+
+// ══════════════════════════════════════════════
+// BOLIVIA TIME HELPERS
+// ══════════════════════════════════════════════
+function getBoliviaMinutes(){
+  const now=new Date();
+  const bTime=new Date(now.getTime()-4*60*60*1000);
+  return bTime.getUTCHours()*60+bTime.getUTCMinutes();
+}
+function isWeekend(){
+  const now=new Date();
+  const d=now.getUTCDay();
+  const h=now.getUTCHours();
+  return d===0||(d===6&&h>=22)||(d===1&&h<0);
+}
+function fmtMin(m){return m>=60?Math.floor(m/60)+'h '+(m%60>0?m%60+'m':''):m+'m';}
+
+// ══════════════════════════════════════════════
+// INDICATOR CALCULATIONS
+// ══════════════════════════════════════════════
+function calcEMA(c,p){const k=2/(p+1);let e=c[0];for(let i=1;i<c.length;i++)e=c[i]*k+e*(1-k);return e;}
+function calcRSI(c,p=14){
+  if(c.length<p+1)return 50;
+  let g=0,l=0;
+  for(let i=1;i<=p;i++){const d=c[i]-c[i-1];d>0?g+=d:l-=d;}
+  let ag=g/p,al=l/p;
+  for(let i=p+1;i<c.length;i++){const d=c[i]-c[i-1];ag=(ag*(p-1)+(d>0?d:0))/p;al=(al*(p-1)+(d<0?-d:0))/p;}
+  return al===0?100:100-(100/(1+ag/al));
+}
+function calcATR(h,l,c,p=14){
+  const trs=[];
+  for(let i=1;i<c.length;i++)trs.push(Math.max(h[i]-l[i],Math.abs(h[i]-c[i-1]),Math.abs(l[i]-c[i-1])));
+  if(trs.length<p)return trs.reduce((a,b)=>a+b,0)/trs.length||0;
+  let atr=trs.slice(0,p).reduce((a,b)=>a+b,0)/p;
+  for(let i=p;i<trs.length;i++)atr=(atr*(p-1)+trs[i])/p;
+  return atr;
+}
+function getBias(price,ema50,ema200,rsi){
+  if(price>ema50&&price>ema200&&rsi<70)return{text:'LARGO',cls:'bl'};
+  if(price<ema50&&price<ema200&&rsi>30)return{text:'CORTO',cls:'bs'};
+  if(rsi>75)return{text:'SOBRECOMPRA',cls:'bw'};
+  if(rsi<25)return{text:'SOBREVENTA',cls:'bw'};
+  return{text:'NEUTRAL',cls:'bn'};
+}
+
+// ══════════════════════════════════════════════
+// YAHOO FINANCE FETCH
+// ══════════════════════════════════════════════
+const PROXY='https://corsproxy.io/?';
+let marketData={GOLD:null,US100:null};
+let alertsEnabled=true,lastAlertTime=0;
+let setupLog=[];try{setupLog=JSON.parse(localStorage.getItem('apex_log')||'[]');}catch(e){}
+
+async function fetchTicker(sym,label){
+  const now=Math.floor(Date.now()/1000);
+  const from=now-60*60*8;
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${from}&period2=${now}&includePrePost=false`;
+  const res=await fetch(PROXY+encodeURIComponent(url),{headers:{'Accept':'application/json'}});
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const json=await res.json();
+  const r=json?.chart?.result?.[0];if(!r)throw new Error('Sin datos');
+  const q=r.indicators.quote[0];
+  const closes=q.close.filter(x=>x!=null);
+  const highs=q.high.filter(x=>x!=null);
+  const lows=q.low.filter(x=>x!=null);
+  if(closes.length<15)throw new Error('Pocos datos');
+  const price=r.meta.regularMarketPrice||closes[closes.length-1];
+  const prev=r.meta.previousClose||r.meta.chartPreviousClose||closes[0];
+  const rsi=+calcRSI(closes).toFixed(1);
+  const ema50=+calcEMA(closes,50).toFixed(2);
+  const ema200=+calcEMA(closes,Math.min(200,closes.length-1)).toFixed(2);
+  const atr=+calcATR(highs,lows,closes).toFixed(2);
+  const sl=+(atr*1.5).toFixed(2);
+  const chg=+((price-prev)/prev*100).toFixed(2);
+  const bias=getBias(price,ema50,ema200,rsi);
+  // ORB range (first 3 M5 candles of NY session = 09:30-09:45 Bolivia)
+  const orbHigh=Math.max(...highs.slice(0,Math.min(3,highs.length)));
+  const orbLow=Math.min(...lows.slice(0,Math.min(3,lows.length)));
+  return{label,price:+price.toFixed(2),prev:+prev.toFixed(2),chg,rsi,ema50,ema200,atr,sl,
+    tp1:+(sl*1.5).toFixed(2),tp2:+(sl*2.5).toFixed(2),bias,orbHigh,orbLow,closes,highs,lows};
+}
+
+async function fetchAllData(){
+  document.getElementById('data-status').textContent='Actualizando...';
+  for(const [key,sym] of Object.entries({GOLD:'GC=F',US100:'NQ=F'})){
+    try{
+      const d=await fetchTicker(sym,key);
+      marketData[key]=d;
+      updateSignalUI(d,key);
+    }catch(e){console.warn(key,e.message);}
+  }
+  const t=new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('last-update').textContent=t;
+  document.getElementById('data-status').textContent='Yahoo Finance · 15min delay';
+  updateVerdict();
+  updateXTBLevels();
+  evaluateAndAlert();
+}
+fetchAllData();
+setInterval(fetchAllData,15*60*1000);
+
+function updateSignalUI(d,key){
+  const k=key.toLowerCase();
+  const isG=key==='GOLD';
+  const rsiColor=d.rsi>70?'var(--red)':d.rsi<30?'var(--green)':'var(--text)';
+  const chgColor=d.chg>=0?'var(--green)':'var(--red)';
+  const chgStr=(d.chg>=0?'+':'')+d.chg+'%';
+  // desktop
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const sc=(id,c)=>{const e=document.getElementById(id);if(e)e.style.color=c;};
+  s(`p-${k}`,d.price.toFixed(2));
+  const ce=document.getElementById(`c-${k}`);if(ce){ce.textContent=chgStr;ce.style.color=chgColor;}
+  const re=document.getElementById(`r-${k}`);if(re){re.textContent=d.rsi;re.style.color=rsiColor;}
+  s(`e-${k}`,d.ema50.toFixed(0));s(`a-${k}`,d.atr.toFixed(2));
+  s(`sl-${k}`,d.sl.toFixed(2));s(`t1-${k}`,d.tp1.toFixed(2));s(`t2-${k}`,d.tp2.toFixed(2));
+  const be=document.getElementById(`b-${k}`);if(be){be.className='bias '+d.bias.cls;be.textContent=d.bias.text;}
+  // mobile
+  s(`p-${k}-m`,d.price.toFixed(2));
+  const cem=document.getElementById(`c-${k}-m`);if(cem){cem.textContent=chgStr;cem.style.color=chgColor;}
+  const rem=document.getElementById(`r-${k}-m`);if(rem){rem.textContent=d.rsi;rem.style.color=rsiColor;}
+  s(`e-${k}-m`,d.ema50.toFixed(0));s(`a-${k}-m`,d.atr.toFixed(2));
+  s(`sl-${k}-m`,d.sl.toFixed(2));s(`t1-${k}-m`,d.tp1.toFixed(2));s(`t2-${k}-m`,d.tp2.toFixed(2));
+  const bem=document.getElementById(`b-${k}-m`);if(bem){bem.className='bias '+d.bias.cls;bem.textContent=d.bias.text;}
+}
+
+// ══════════════════════════════════════════════
+// VERDICT ENGINE — the core of the app
+// Bolivia UTC-4
+// Sessions:
+//   08:00–09:29 → Pre-NY (GOLD VWAP available)
+//   09:30–09:44 → ORB forming (wait)
+//   09:45–12:00 → ORB active + VWAP
+//   12:00–16:00 → Only VWAP if clear
+//   16:00–21:00 → NY late session (light)
+//   21:00–23:00 → Prepare next day
+//   23:00–08:00 → Night (no trade)
+// ══════════════════════════════════════════════
+function computeVerdict(){
+  const bm=getBoliviaMinutes();
+  const bh=Math.floor(bm/60);
+  const wk=isWeekend();
+  const gd=marketData.GOLD,ud=marketData.US100;
+
+  if(wk)return{
+    type:'prep',icon:'📅',label:'FIN DE SEMANA',strategy:'MERCADO CERRADO',
+    detail:'El mercado Forex/CFD cierra el viernes a las 17:00 Bolivia y reabre el domingo a las 18:00 Bolivia.',
+    action:'Aprovecha para revisar tu diario de trading y preparar los niveles del lunes.',
+    levels:null,color:'var(--muted)'
+  };
+
+  // Night zone
+  if(bh<8||(bh>=23)){return{
+    type:'prep',icon:'🌙',label:'ZONA TRANQUILA',strategy:'PREPARACIÓN',
+    detail:`Son las ${Math.floor(bm/60).toString().padStart(2,'0')}:${(bm%60).toString().padStart(2,'0')} en Bolivia. Sin sesiones activas con suficiente volumen para scalping.`,
+    action:'Revisa los niveles de GOLD y US100 para mañana. Configura alertas en XTB para las 08:00.',
+    levels:null,color:'var(--muted)'
+  };}
+
+  // 08:00–09:29 → Pre-NY, GOLD VWAP window
+  if(bh>=8&&bm<9*60+30){
+    const minsToNY=9*60+30-bm;
+    if(!gd)return{type:'wait',icon:'⏳',label:'ESPERANDO DATOS',strategy:'CARGANDO...',detail:'Obteniendo datos...',action:'',levels:null,color:'var(--gold)'};
+    const vwapDist=gd.atr*1.5;
+    const vwapZone=gd.rsi<35||gd.rsi>68;
+    if(vwapZone&&gd.rsi<35){return{
+      type:'watch',icon:'👁',label:'VIGILAR',strategy:'VWAP REVERSION GOLD',
+      detail:`RSI GOLD en ${gd.rsi} (sobreventa). Precio alejado del promedio. Posible rebote si aparece vela de reversión M5.`,
+      action:`Buscar PIN BAR o ENGULFING alcista en M5. SL: ${gd.sl} pts | TP1: ${gd.tp1} | TP2: ${gd.tp2} | Lotes: 0.01`,
+      levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'RSI',v:gd.rsi,c:'var(--green)'}],
+      color:'var(--cyan)'
+    };}
+    return{
+      type:'wait',icon:'⏳',label:'ESPERAR',strategy:`NY ABRE EN ${fmtMin(minsToNY)}`,
+      detail:`NY abre a las 09:30 Bolivia. El ORB de US100 empieza en ${fmtMin(minsToNY)}.${gd?` GOLD RSI: ${gd.rsi} — ${gd.rsi<40?'zona de sobreventa, vigila rebote.':'sin setup claro aún.'}`:''}`,
+      action:'Prepara el gráfico US100 M5 en XTB. A las 09:30 empieza a formarse el rango ORB.',
+      levels:null,color:'var(--gold)'
+    };
+  }
+
+  // 09:30–09:44 → ORB forming
+  if(bm>=9*60+30&&bm<9*60+45){return{
+    type:'watch',icon:'👁',label:'FORMANDO RANGO',strategy:'ORB 15 MIN — ESPERAR',
+    detail:'El rango de apertura NY se está formando. NO entrar todavía. A las 09:45 tendrás el máximo y mínimo definidos.',
+    action:'Observa el máximo y mínimo de las últimas 3 velas M5 en XTB. A las 09:45 marca esos niveles.',
+    levels:ud?[{l:'ORB MAX',v:ud.orbHigh.toFixed(0),c:'var(--red)'},{l:'ORB MIN',v:ud.orbLow.toFixed(0),c:'var(--green)'},{l:'RANGO',v:(ud.orbHigh-ud.orbLow).toFixed(0)+' pts',c:'var(--cyan)'}]:null,
+    color:'var(--cyan)'
+  };}
+
+  // ── 09:45–11:00 → VENTANA DE ORO ──
+  if(bm>=9*60+45&&bm<11*60){
+    if(!ud&&!gd)return{type:'wait',icon:'⏳',label:'CARGANDO',strategy:'...',detail:'Cargando datos...',action:'',levels:null,color:'var(--gold)'};
+    const orbLong=ud&&ud.price>ud.orbHigh&&ud.rsi>50;
+    const orbShort=ud&&ud.price<ud.orbLow&&ud.rsi<50;
+    if(orbLong){return{
+      type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — US100 ⭐',
+      detail:`US100 rompió el MAX del rango (${ud.orbHigh.toFixed(0)}) con RSI ${ud.rsi}. Ventana de oro activa. Condiciones cumplidas.`,
+      action:`LARGO US100 ahora. SL: ${ud.sl.toFixed(0)} pts | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
+      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],
+      color:'var(--green)'
+    };}
+    if(orbShort){return{
+      type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — US100 ⭐',
+      detail:`US100 rompió el MIN del rango (${ud.orbLow.toFixed(0)}) con RSI ${ud.rsi}. Ventana de oro activa. Condiciones cumplidas.`,
+      action:`CORTO US100 ahora. SL: ${ud.sl.toFixed(0)} pts | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
+      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],
+      color:'var(--green)'
+    };}
+    // VWAP GOLD simultáneo
+    if(gd&&(gd.rsi<32||gd.rsi>70)){return{
+      type:'watch',icon:'👁',label:'VIGILAR',strategy:'VWAP REVERSION — GOLD',
+      detail:`Sin setup ORB en US100 aún. RSI GOLD ${gd.rsi} — ${gd.rsi<32?'sobreventa, posible rebote.':'sobrecompra, posible caída.'} Ventana de oro activa.`,
+      action:`Buscar PIN BAR o ENGULFING en GOLD M5. SL: ${gd.sl} | TP1: ${gd.tp1} | Lotes: 0.01`,
+      levels:[{l:'RSI GOLD',v:gd.rsi,c:gd.rsi<32?'var(--green)':'var(--red)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'}],
+      color:'var(--cyan)'
+    };}
+    // Esperando ruptura ORB
+    const minsLeft=11*60-bm;
+    return{
+      type:'wait',icon:'⏳',label:'ESPERAR RUPTURA',strategy:`ORB US100 — QUEDAN ${fmtMin(minsLeft)}`,
+      detail:ud?`⭐ VENTANA DE ORO activa. ORB MAX: ${ud.orbHigh.toFixed(0)} / MIN: ${ud.orbLow.toFixed(0)} (rango ${(ud.orbHigh-ud.orbLow).toFixed(0)} pts). Precio: ${ud.price.toFixed(0)}. Esperando cierre de vela M5 fuera del rango.`:'Cargando datos...',
+      action:'Vela M5 cierra por encima del MAX → LARGO. Por debajo del MIN → CORTO. Confirma RSI>50 o <50.',
+      levels:ud?[{l:'ORB MAX',v:ud.orbHigh.toFixed(0),c:'var(--red)'},{l:'PRECIO',v:ud.price.toFixed(0),c:'var(--text)'},{l:'ORB MIN',v:ud.orbLow.toFixed(0),c:'var(--green)'}]:null,
+      color:'var(--gold)'
+    };
+  }
+
+  // ── 11:00–12:00 → ZONA MARGINAL ──
+  if(bm>=11*60&&bh<12){
+    const orbLong=ud&&ud.price>ud.orbHigh&&ud.rsi>55;
+    const orbShort=ud&&ud.price<ud.orbLow&&ud.rsi<45;
+    if(orbLong||orbShort){return{
+      type:'watch',icon:'👁',label:'SETUP MARGINAL',strategy:`ORB ${orbLong?'LARGO':'CORTO'} — SOLO SI MUY CLARO`,
+      detail:`ORB sigue activo pero el momentum de apertura baja. ${orbLong?`US100 sobre MAX ${ud.orbHigh.toFixed(0)}`:`US100 bajo MIN ${ud.orbLow.toFixed(0)}`} con RSI ${ud.rsi}. Mayor selectividad requerida.`,
+      action:`Solo entrar si la vela de ruptura M5 es muy limpia y el MACD confirma. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | Lotes: 0.01`,
+      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'RSI',v:ud.rsi,c:'var(--text)'}],
+      color:'var(--gold)'
+    };}
+    return{
+      type:'no',icon:'🚫',label:'NO OPERAR',strategy:'VENTANA CERRADA',
+      detail:'Las 11:00 Bolivia marca el fin de la ventana de oro ORB. El momentum de apertura NY se agota. Riesgo de señales falsas aumenta significativamente.',
+      action:'Tu operativa ha terminado por hoy. Si tienes posición abierta, gestiona el SL. Prepara análisis a las 21:00.',
+      levels:null,color:'var(--red)'
+    };
+  }
+
+  // ── 12:00–21:00 → FUERA DE VENTANA ──
+  if(bh>=12&&bh<21){return{
+    type:'no',icon:'🚫',label:'NO OPERAR',strategy:'FUERA DE TU VENTANA',
+    detail:`${bh<17?'Sesión NY activa pero fuera de tu ventana operativa (09:45–11:00).':'NY cerrando. Liquidez muy baja.'} No hay estrategia válida para este horario en tu sistema.`,
+    action:bh>=16?'Cierra posiciones abiertas antes de las 17:00 Bolivia. NY cierra a esa hora.':'Aprovecha para revisar cómo fue tu operativa de la mañana. Prepara análisis a las 21:00.',
+    levels:null,color:'var(--red)'
+  };}
+
+  // 21:00–23:00 → Preparation
+  return{
+    type:'prep',icon:'📋',label:'PREPARACIÓN',strategy:'ANÁLISIS PARA MAÑANA',
+    detail:'Horario ideal para preparar el día siguiente. Revisa niveles clave y configura alertas en XTB.',
+    action:gd&&ud?`GOLD cierra en ${gd.price}. US100 cierra en ${ud.price.toFixed(0)}. Configura alertas en XTB en EMA50 GOLD (${gd.ema50}) y máx/mín del día.`:'Configura alertas de precio en XTB para los niveles clave de mañana.',
+    levels:gd?[{l:'GOLD',v:gd.price.toFixed(1),c:'var(--gold)'},{l:'EMA50',v:gd.ema50.toFixed(1),c:'var(--gold)'},{l:'RSI',v:gd.rsi,c:'var(--muted)'}]:null,
+    color:'var(--muted)'
+  };
+}
+
+function updateVerdict(){
+  const v=computeVerdict();
+  ['verdict-d','verdict-mob'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    const typeMap={operate:'v-operate',wait:'v-wait',watch:'v-watch',no:'v-no',prep:'v-prep'};
+    const lblMap={operate:'vl-operate',wait:'vl-wait',watch:'vl-watch',no:'vl-no',prep:'vl-prep'};
+    const strMap={operate:'vs-operate',wait:'vs-wait',watch:'vs-watch',no:'vs-no',prep:'vs-prep'};
+    el.className='verdict-card '+(typeMap[v.type]||'v-loading');
+    const actionColor=v.type==='operate'?'rgba(0,227,150,0.15)':v.type==='no'?'rgba(255,69,96,0.1)':'rgba(245,200,66,0.08)';
+    el.innerHTML=`
+      <div class="verdict-top">
+        <div class="verdict-label ${lblMap[v.type]||''}">${v.icon} ${v.label}</div>
+        <div class="verdict-strategy ${strMap[v.type]||''}">${v.strategy}</div>
+      </div>
+      <div class="verdict-detail">${v.detail}</div>
+      ${v.levels?`<div class="verdict-levels">${v.levels.map(lv=>`
+        <div class="vl-item">
+          <div class="vl-item-label">${lv.l}</div>
+          <div class="vl-item-val" style="color:${lv.c}">${lv.v}</div>
+        </div>`).join('')}</div>`:''}
+      <div class="verdict-action" style="background:${actionColor};color:${v.color};">${v.action}</div>`;
+  });
+}
+setInterval(updateVerdict,60000);
+
+// ══════════════════════════════════════════════
+// SESSIONS
+// ══════════════════════════════════════════════
+const SESS=[
+  {n:'TOKIO',    utcS:23*60,utcE:8*60,  bolS:'19:00',bolE:'04:00',inst:'GOLD'},
+  {n:'FRANKFURT',utcS:7*60, utcE:15*60, bolS:'03:00',bolE:'11:00',inst:'GER40'},
+  {n:'LONDRES',  utcS:7*60, utcE:16*60, bolS:'03:00',bolE:'12:00',inst:'GOLD'},
+  {n:'NUEVA YORK',utcS:13*60+30,utcE:21*60,bolS:'09:30',bolE:'17:00',inst:'US100'},
+];
+function isSessActive(s,e,um){return s>e?um>=s||um<e:um>=s&&um<e;}
+function updateSessions(){
+  const now=new Date();
+  const um=now.getUTCHours()*60+now.getUTCMinutes();
+  const wk=isWeekend();
+  ['sess-d','sess-m'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    if(wk){el.innerHTML=`<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);padding:6px 0;">⛔ Mercado cerrado — fin de semana</div>`;return;}
+    el.innerHTML=SESS.map(s=>{
+      const a=isSessActive(s.utcS,s.utcE,um);
+      return`<div class="srow"><span class="sname">${s.n}</span><span class="sstat ${a?'sact':'scls'}">${a?'ACTIVA':'CERRADA'}</span></div>
+      <div class="sdet" style="color:${a?'var(--green)':'var(--muted)'};">${s.bolS}–${s.bolE} Bolivia · ${s.inst}</div>`;
+    }).join('');
+  });
+}
+updateSessions();setInterval(updateSessions,60000);
+
+// ══════════════════════════════════════════════
+// ALERT ENGINE
+// ══════════════════════════════════════════════
+function vibrate(p){if(navigator.vibrate)navigator.vibrate(p);}
+function flashScreen(c='rgba(245,200,66,0.2)'){
+  const s=document.createElement('style');
+  s.textContent='@keyframes fa{0%,100%{opacity:0}50%{opacity:1}}';
+  document.head.appendChild(s);
+  const fl=document.createElement('div');
+  fl.style.cssText=`position:fixed;inset:0;background:${c};z-index:9999;pointer-events:none;animation:fa .7s ease 3`;
+  document.body.appendChild(fl);setTimeout(()=>{fl.remove();s.remove();},2200);
+}
+function showBanner(setup){
+  document.getElementById('alertBanner')?.remove();
+  const b=document.createElement('div');b.id='alertBanner';
+  b.style.cssText=`position:fixed;top:70px;left:12px;right:12px;z-index:500;
+    background:var(--bg2);border:2px solid ${setup.color};border-radius:14px;
+    padding:14px 16px;box-shadow:0 0 30px rgba(245,200,66,0.15);animation:slideDown .4s ease;`;
+  const ss=document.createElement('style');ss.textContent='@keyframes slideDown{from{transform:translateY(-20px);opacity:0}to{transform:translateY(0);opacity:1}}';
+  document.head.appendChild(ss);
+  b.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+    <div style="font-family:var(--font-head);font-size:17px;letter-spacing:2px;color:${setup.color};">${setup.icon} ${setup.label}</div>
+    <div style="cursor:pointer;color:var(--muted);font-size:20px;" onclick="this.parentElement.parentElement.remove()">×</div></div>
+  <div style="font-size:12px;line-height:1.5;color:var(--text);margin-bottom:8px;">${setup.detail}</div>
+  <div style="font-family:var(--font-mono);font-size:10px;color:${setup.color};background:rgba(0,0,0,0.3);padding:7px 10px;border-radius:6px;">${setup.action}</div>
+  <div style="margin-top:8px;font-family:var(--font-mono);font-size:9px;color:var(--muted);">
+    ${new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})} Bolivia</div>`;
+  document.body.appendChild(b);
+  setTimeout(()=>b?.remove(),30000);
+}
+function logSetup(v){
+  const e={...v,time:new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'})};
+  setupLog.unshift(e);if(setupLog.length>20)setupLog=setupLog.slice(0,20);
+  try{localStorage.setItem('apex_log',JSON.stringify(setupLog));}catch(e){}
+  updateSetupLog();
+}
+function updateSetupLog(){
+  ['log-m'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    if(setupLog.length===0){el.innerHTML='<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">Sin alertas registradas.</div>';return;}
+    el.innerHTML=setupLog.slice(0,5).map(e=>`
+      <div style="padding:8px 10px;background:var(--bg4);border-radius:8px;margin-bottom:6px;border-left:3px solid ${e.color||'var(--gold)'};">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px;">
+          <span style="font-family:var(--font-head);font-size:12px;color:${e.color||'var(--gold)'};">${e.icon||''} ${e.label}</span>
+          <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">${e.time}</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);">${e.strategy}</div>
+      </div>`).join('');
+  });
+}
+updateSetupLog();
+function evaluateAndAlert(){
+  if(!alertsEnabled)return;
+  const now=Date.now();
+  if(now-lastAlertTime<10*60*1000)return;
+  const v=computeVerdict();
+  if(v.type==='operate'||v.type==='watch'){
+    lastAlertTime=now;
+    logSetup(v);
+    vibrate(v.type==='operate'?[200,100,200,100,400]:[150,100,150]);
+    flashScreen(v.type==='operate'?'rgba(0,227,150,0.15)':'rgba(0,229,255,0.1)');
+    showBanner(v);
+  }
+}
+function toggleAlerts(){
+  alertsEnabled=!alertsEnabled;
+  const t=document.getElementById('alert-toggle');
+  const k=document.getElementById('toggle-knob');
+  if(t)t.style.background=alertsEnabled?'var(--green)':'var(--muted)';
+  if(k)k.style.right=alertsEnabled?'2px':'18px';
+}
+
+// ══════════════════════════════════════════════
+// STATIC CONTENT
+// ══════════════════════════════════════════════
+const checkData=[
+  {l:'Veredicto app = ✅ OPERAR o 👁 VIGILAR',d:'No entrar en zona NO OPERAR'},
+  {l:'Sesión activa con volumen',d:'NY 09:30–12:00 Bolivia = ventana principal'},
+  {l:'Sin noticias de alto impacto',d:'NFP, CPI, Fed, PIB = no operar ese día'},
+  {l:'RSI confirmado',d:'ORB: RSI>50 largo / <50 corto. VWAP: RSI<32 o >68'},
+  {l:'Vela de confirmación M5',d:'Pin bar, engulfing o inside bar'},
+  {l:'Precio rompió el nivel clave',d:'ORB: fuera del rango. VWAP: lejos del promedio'},
+  {l:'MACD en la misma dirección',d:'Histograma positivo (largo) o negativo (corto)'},
+  {l:'RR mínimo 1:1.5',d:'TP1 = 1.5× el SL mínimo'},
+  {l:'Lote calculado = 0.01',d:'Riesgo máx $5.41 (1% de $541)'},
+];
+
+const stratHTML=`
+<div class="card">
+  <div class="ct">🎯 TU SISTEMA DE TRADING</div>
+  <div style="background:rgba(0,227,150,0.06);border:1px solid rgba(0,227,150,0.2);border-radius:8px;padding:12px;margin-bottom:14px;">
+    <table style="width:100%;font-size:11px;border-collapse:collapse;">
+      <thead><tr style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">
+        <th style="padding:5px 8px;text-align:left;">HORA BOLIVIA</th><th style="padding:5px 8px;">QUÉ HACER</th><th style="padding:5px 8px;">INSTRUMENTO</th>
+      </tr></thead>
+      <tbody>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">08:00–09:29</td><td style="padding:6px 8px;font-size:11px;">VWAP GOLD si RSI extremo</td><td style="padding:6px 8px;color:var(--gold);font-family:var(--font-mono);font-size:10px;">GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">09:30–09:44</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Esperar — formando rango ORB</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(0,227,150,0.07);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--green);">09:45–11:00 ⭐</td><td style="padding:6px 8px;font-size:11px;color:var(--green);font-weight:600;">VENTANA DE ORO — ORB US100 + VWAP GOLD</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100 + GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(245,200,66,0.04);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">11:00–12:00</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Solo si setup perfecto (⭐⭐ calidad)</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--red);">12:00–16:00</td><td style="padding:6px 8px;font-size:11px;color:var(--red);">NO OPERAR</td><td style="padding:6px 8px;color:var(--muted);font-family:var(--font-mono);font-size:10px;">—</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">21:00–23:00</td><td style="padding:6px 8px;font-size:11px;">Preparar día siguiente</td><td style="padding:6px 8px;color:var(--muted);font-family:var(--font-mono);font-size:10px;">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <div class="ct">ORB 15 MIN — US100 <span class="badge-g badge">WIN RATE 58-62%</span></div>
+  <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">58–62%</div></div>
+  <div class="steps">
+    <div class="step"><div class="sn">1</div><div class="st">09:30 Bolivia — NY abre. <strong>Espera sin entrar.</strong></div></div>
+    <div class="step"><div class="sn">2</div><div class="st">09:45 Bolivia — El rango está definido. Marca el <strong>MÁXIMO y MÍNIMO</strong> de las 3 primeras velas M5.</div></div>
+    <div class="step"><div class="sn">3</div><div class="st">Espera que una vela M5 <strong>cierre fuera del rango</strong> + RSI>50 (largo) o RSI<50 (corto).</div></div>
+    <div class="step"><div class="sn">4</div><div class="st">Entra al cierre de esa vela. <strong>SL dentro del rango</strong> o 1.5×ATR.</div></div>
+    <div class="step"><div class="sn">5</div><div class="st">TP1 = amplitud del rango. Cierra <strong>50% en TP1</strong>, mueve SL a BE, deja correr el 50%.</div></div>
+  </div>
+  <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
+    ⛔ <strong style="color:var(--red)">NO usar ORB</strong> si hay noticias de alto impacto antes de las 10:00 Bolivia.
+  </div>
+</div>
+
+<div class="card">
+  <div class="ct">VWAP REVERSION — GOLD <span class="badge-g badge">WIN RATE 60-65%</span></div>
+  <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">60–65%</div></div>
+  <div class="steps">
+    <div class="step"><div class="sn c">1</div><div class="st">Añade el <strong class="c">VWAP diario</strong> en XTB (indicadores → VWAP). Línea de referencia del precio justo.</div></div>
+    <div class="step"><div class="sn c">2</div><div class="st">Espera que el precio se aleje <strong class="c">1.5×ATR del VWAP</strong> con RSI<32 (largo) o RSI>68 (corto).</div></div>
+    <div class="step"><div class="sn c">3</div><div class="st">Confirma con <strong class="c">vela de reversión M5</strong> (pin bar o engulfing).</div></div>
+    <div class="step"><div class="sn c">4</div><div class="st">TP1 = el propio VWAP. Cierra <strong class="c">70% en TP1</strong>. Deja 30% para TP2.</div></div>
+  </div>
+  <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
+    ⛔ <strong style="color:var(--red)">NO usar VWAP Reversion</strong> en días de tendencia fuerte (EMA50 muy separada de EMA200) ni en días de noticias macro importantes.
+  </div>
+</div>
+
+<div class="card">
+  <div class="ct">EMA PULLBACK — SECUNDARIA <span class="badge">WIN RATE 52-55%</span></div>
+  <div class="steps">
+    <div class="step"><div class="sn g">1</div><div class="st">Usar solo cuando no hay ORB ni VWAP claro. Precio sobre <strong class="g">EMA50 y EMA200</strong> = alcista.</div></div>
+    <div class="step"><div class="sn g">2</div><div class="st">Retroceso a la <strong class="g">EMA50</strong>. No debe cerrar al otro lado.</div></div>
+    <div class="step"><div class="sn g">3</div><div class="st">Vela de reversión + <strong class="g">SL = 1.5×ATR</strong>. RR mínimo 1:1.5.</div></div>
+  </div>
+</div>`;
+
+const riskHTML=`
+<div class="card"><div class="ct">CALCULADORA XTB <span class="badge-g badge">MIN 0.01</span></div>
+<div class="calc-grid">
+<div><div class="calc-lbl">INSTRUMENTO</div>
+<select class="calc-inp" id="inst-sel" onchange="calcR()">
+<option value="gold">GOLD (XAU/USD)</option>
+<option value="us100">US100 (NAS100)</option>
+<option value="ger40">GER40 (DAX)</option>
+</select></div>
+<div><div class="calc-lbl">CAPITAL ($)</div><input class="calc-inp" type="number" id="cap" value="541" oninput="calcR()"></div>
+<div><div class="calc-lbl">RIESGO %</div><input class="calc-inp" type="number" id="rpct" value="1" step="0.5" oninput="calcR()"></div>
+<div><div class="calc-lbl">SL (pts)</div><input class="calc-inp" type="number" id="slp" value="4.2" step="0.1" oninput="calcR()"></div>
+</div>
+<div class="calc-res">
+<div><div class="cr-lbl">RIESGO $</div><div class="cr-val vr" id="rd">—</div></div>
+<div><div class="cr-lbl">LOTES REALES</div><div class="cr-val vau" id="lr">—</div></div>
+<div><div class="cr-lbl">TP1 GANANCIA</div><div class="cr-val vg" id="t1c">—</div></div>
+<div><div class="cr-lbl">TP2 GANANCIA</div><div class="cr-val vg" id="t2c">—</div></div>
+</div>
+<div class="calc-note" id="calc-note">Selecciona instrumento.</div>
+</div>
+<div class="card"><div class="ct">REGLAS CON $541</div>
+<table class="rt"><thead><tr><th>REGLA</th><th>VALOR</th></tr></thead><tbody>
+<tr><td>Riesgo 1%/op.</td><td style="color:var(--red)">$5.41</td></tr>
+<tr><td>Riesgo 2%/op.</td><td style="color:var(--gold)">$10.82</td></tr>
+<tr><td>Riesgo diario máx 3%</td><td style="color:var(--red)">$16.23</td></tr>
+<tr><td>Máx ops/día</td><td style="color:var(--gold)">3 (con 1%)</td></tr>
+<tr><td>Lote mínimo XTB</td><td style="color:var(--green)">0.01</td></tr>
+<tr><td>Ventana principal</td><td style="color:var(--green)">09:45–12:00 Bolivia</td></tr>
+</tbody></table></div>`;
+
+const xtbHTML=`
+<div class="card">
+  <div class="ct">📱 CÓMO CONFIGURAR ALERTAS EN XTB</div>
+  <div class="steps">
+    <div class="step"><div class="sn">1</div><div class="st">Abre <strong>XStation móvil</strong> → ve al gráfico de GOLD o US100.</div></div>
+    <div class="step"><div class="sn">2</div><div class="st">Toca el precio → selecciona <strong>"Crear alerta de precio"</strong>.</div></div>
+    <div class="step"><div class="sn">3</div><div class="st">Elige <strong>"Por encima de"</strong> o <strong>"Por debajo de"</strong> y escribe el nivel.</div></div>
+    <div class="step"><div class="sn">4</div><div class="st">Activa <strong>"Notificación push"</strong> — llegarás a tu móvil aunque XStation esté cerrado.</div></div>
+    <div class="step"><div class="sn">5</div><div class="st">Cuando llegue la alerta → abre APEX SCALPER → lee el veredicto → confirma en XTB.</div></div>
+  </div>
+</div>
+<div class="card">
+  <div class="ct" style="color:var(--gold);">GOLD — NIVELES PARA HOY</div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:10px;font-family:var(--font-mono);">Ponlos como alertas en XTB ahora mismo</div>
+  <table class="rt"><thead><tr><th>NIVEL</th><th>PRECIO</th><th>POR QUÉ</th><th>TIPO</th></tr></thead>
+  <tbody id="gold-levels"><tr><td colspan="4" style="color:var(--muted);font-size:10px;">Cargando...</td></tr></tbody></table>
+</div>
+<div class="card">
+  <div class="ct" style="color:var(--cyan);">US100 — NIVELES PARA HOY</div>
+  <div style="font-size:10px;color:var(--muted);margin-bottom:10px;font-family:var(--font-mono);">Ponlos como alertas en XTB ahora mismo</div>
+  <table class="rt"><thead><tr><th>NIVEL</th><th>PRECIO</th><th>POR QUÉ</th><th>TIPO</th></tr></thead>
+  <tbody id="us100-levels"><tr><td colspan="4" style="color:var(--muted);font-size:10px;">Cargando...</td></tr></tbody></table>
+</div>
+<div class="card">
+  <div class="ct">📋 AÑADIR VWAP EN XTB</div>
+  <div class="steps">
+    <div class="step"><div class="sn c">1</div><div class="st">En XStation, abre el gráfico de <strong class="c">GOLD M5</strong>.</div></div>
+    <div class="step"><div class="sn c">2</div><div class="st">Toca el icono de <strong class="c">indicadores (fx)</strong> en la barra superior.</div></div>
+    <div class="step"><div class="sn c">3</div><div class="st">Busca <strong class="c">"VWAP"</strong> y añádelo. Configuración por defecto está bien.</div></div>
+    <div class="step"><div class="sn c">4</div><div class="st">Aparece como <strong class="c">línea blanca</strong> en el gráfico. El precio debe respetarla.</div></div>
+  </div>
+</div>`;
+
+const indHTML=`
+<div class="card"><div class="ct">YA TIENES EN XTB ✅</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+<div style="background:var(--bg4);border:1px solid rgba(0,227,150,0.3);border-radius:8px;padding:10px;">
+<div style="font-family:var(--font-head);font-size:13px;color:var(--text);margin-bottom:3px;">EMA 50</div>
+<div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);">Línea amarilla en tus gráficos</div>
+<div style="font-size:11px;color:var(--muted);margin-top:4px;">Pullback principal y zona de entrada.</div></div>
+<div style="background:var(--bg4);border:1px solid rgba(0,227,150,0.3);border-radius:8px;padding:10px;">
+<div style="font-family:var(--font-head);font-size:13px;color:var(--text);margin-bottom:3px;">EMA 200</div>
+<div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);">Línea azul en tus gráficos</div>
+<div style="font-size:11px;color:var(--muted);margin-top:4px;">Tendencia macro. Precio bajo = bajista.</div></div>
+<div style="background:var(--bg4);border:1px solid rgba(0,227,150,0.3);border-radius:8px;padding:10px;">
+<div style="font-family:var(--font-head);font-size:13px;color:var(--text);margin-bottom:3px;">RSI(14)</div>
+<div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);">Panel inferior izquierdo</div>
+<div style="font-size:11px;color:var(--muted);margin-top:4px;">&gt;70 sobrecompra · &lt;30 sobreventa.</div></div>
+<div style="background:var(--bg4);border:1px solid rgba(0,227,150,0.3);border-radius:8px;padding:10px;">
+<div style="font-family:var(--font-head);font-size:13px;color:var(--text);margin-bottom:3px;">MACD</div>
+<div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);">Panel inferior derecho</div>
+<div style="font-size:11px;color:var(--muted);margin-top:4px;">Cruce en retrocesos = confirmación.</div></div>
+</div></div>
+<div class="card"><div class="ct">AÑADIR AHORA — VWAP ⭐</div>
+<div style="background:rgba(245,200,66,0.06);border:1px solid rgba(245,200,66,0.2);border-radius:8px;padding:12px;">
+<div style="font-size:12px;color:var(--text);line-height:1.7;">El <strong style="color:var(--gold)">VWAP diario</strong> es el único indicador que te falta para la estrategia VWAP Reversion en GOLD. Sin él no puedes identificar cuándo el precio está "lejos del promedio".<br><br>
+Ve a la pestaña <strong style="color:var(--gold)">ALERTAS XTB</strong> para ver cómo añadirlo paso a paso.</div>
+</div></div>`;
+
+// Inject content
+['tc-e','mob-est'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=stratHTML;});
+['tc-r','mob-rie'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=riskHTML;});
+['tc-xtb','mob-xtb'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=xtbHTML;});
+document.getElementById('tc-i').innerHTML=indHTML;
+
+// Checklists
+function buildCL(id){
+  const el=document.getElementById(id);if(!el)return;
+  checkData.forEach(item=>{
+    const d=document.createElement('div');d.className='ci';
+    d.innerHTML=`<div class="cb"></div><div class="clabel">${item.l}<small>${item.d}</small></div>`;
+    d.onclick=()=>d.classList.toggle('checked');el.appendChild(d);
+  });
+}
+buildCL('cl-d');buildCL('cl-m');
+
+// Risk calc
+const instruments={
+  gold:{pip:1,minLot:.01,lotStep:.01,note:'GOLD: contrato 100oz. $1 por pip por lote. Con $541 al 1% → riesgo $5.41 → máx 0.01 lotes si SL > 5 pts.'},
+  us100:{pip:1,minLot:.01,lotStep:.01,note:'US100: $1 por punto por lote. Estrategia principal ORB 09:45 Bolivia. Con $541 al 1% → 0.01 lotes máx.'},
+  ger40:{pip:1,minLot:.01,lotStep:.01,note:'GER40 (DAX): sesión 03:00–11:00 Bolivia. Muy técnico, ideal si quieres operar en las mañanas tempranas.'},
+};
+function calcR(){
+  const inst=instruments[document.getElementById('inst-sel')?.value||'gold'];
+  const cap=parseFloat(document.getElementById('cap')?.value)||541;
+  const rp=parseFloat(document.getElementById('rpct')?.value)||1;
+  const sl=parseFloat(document.getElementById('slp')?.value)||4.2;
+  const rd=cap*rp/100;
+  const raw=rd/(sl*inst.pip);
+  const real=Math.max(inst.minLot,Math.floor(raw/inst.lotStep)*inst.lotStep);
+  const rr=real*sl*inst.pip;
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('rd','$'+rd.toFixed(2));s('lr',real.toFixed(2)+' lotes');
+  s('t1c','$'+(rr*1.5).toFixed(2));s('t2c','$'+(rr*2.5).toFixed(2));
+  const n=document.getElementById('calc-note');if(n)n.textContent=inst.note;
+}
+setTimeout(calcR,200);
+
+// XTB Levels
+function updateXTBLevels(){
+  const gd=marketData.GOLD,ud=marketData.US100;
+  if(gd){
+    const el=document.getElementById('gold-levels');
+    if(el)el.innerHTML=`
+      <tr><td style="color:var(--muted)">EMA200</td><td style="color:var(--red)">${gd.ema200.toFixed(1)}</td><td style="font-size:10px;">Resistencia macro</td><td><span class="chip chip-g">↑ Por encima</span></td></tr>
+      <tr><td style="color:var(--muted)">EMA50</td><td style="color:var(--red)">${gd.ema50.toFixed(1)}</td><td style="font-size:10px;">Resistencia inmediata</td><td><span class="chip chip-g">↑ Por encima</span></td></tr>
+      <tr><td style="color:var(--gold)">PRECIO</td><td style="color:var(--gold)">${gd.price.toFixed(1)}</td><td style="font-size:10px;">RSI ${gd.rsi}</td><td>—</td></tr>
+      <tr><td style="color:var(--muted)">SOP. ATR×2</td><td style="color:var(--green)">${(gd.price-gd.atr*2).toFixed(1)}</td><td style="font-size:10px;">Soporte dinámico</td><td><span class="chip chip-g">↓ Por debajo</span></td></tr>
+      <tr><td style="color:var(--muted)">SOP. ATR×4</td><td style="color:var(--green)">${(gd.price-gd.atr*4).toFixed(1)}</td><td style="font-size:10px;">Soporte fuerte</td><td><span class="chip chip-g">↓ Por debajo</span></td></tr>`;
+  }
+  if(ud){
+    const el=document.getElementById('us100-levels');
+    if(el)el.innerHTML=`
+      <tr><td style="color:var(--muted)">EMA200</td><td style="color:var(--red)">${ud.ema200.toFixed(0)}</td><td style="font-size:10px;">Resistencia macro</td><td><span class="chip chip-g">↑ Por encima</span></td></tr>
+      <tr><td style="color:var(--muted)">ORB MAX</td><td style="color:var(--red)">${ud.orbHigh.toFixed(0)}</td><td style="font-size:10px;">Ruptura = entrada largo</td><td><span class="chip chip-g">↑ Por encima</span></td></tr>
+      <tr><td style="color:var(--cyan)">PRECIO</td><td style="color:var(--cyan)">${ud.price.toFixed(0)}</td><td style="font-size:10px;">RSI ${ud.rsi}</td><td>—</td></tr>
+      <tr><td style="color:var(--muted)">ORB MIN</td><td style="color:var(--green)">${ud.orbLow.toFixed(0)}</td><td style="font-size:10px;">Ruptura = entrada corto</td><td><span class="chip chip-g">↓ Por debajo</span></td></tr>
+      <tr><td style="color:var(--muted)">SOP. ATR×2</td><td style="color:var(--green)">${(ud.price-ud.atr*2).toFixed(0)}</td><td style="font-size:10px;">Soporte dinámico</td><td><span class="chip chip-g">↓ Por debajo</span></td></tr>`;
+  }
+}
+
+// ══════════════════════════════════════════════
+// NAV
+// ══════════════════════════════════════════════
+function switchTab(n,el){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ['e','r','xtb','i'].forEach(x=>{const tc=document.getElementById('tc-'+x);if(tc)tc.classList.toggle('active',x===n);});
+}
+function showPg(n,btn){
+  document.querySelectorAll('.mob-page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('pg-'+n)?.classList.add('active');
+  btn.classList.add('active');window.scrollTo(0,0);
+}
+function openChat(){document.getElementById('chatModal').classList.add('open');}
+function closeChat(){document.getElementById('chatModal').classList.remove('open');}
+function bgClose(e){if(e.target===document.getElementById('chatModal'))closeChat();}
+
+// ══════════════════════════════════════════════
+// AI CHAT — context-aware
+// ══════════════════════════════════════════════
+const SYS=`Eres APEX AI, asistente de scalping para XTB.
+Usuario: Daniel, Santa Cruz Bolivia (UTC-4). Capital: ~$541. Lote mínimo: 0.01.
+VENTANA DE ORO: 09:45–11:00 Bolivia (apertura NY). Esta es la única ventana principal.
+Ventana secundaria: 08:00–09:29 Bolivia (pre-NY, solo VWAP GOLD si RSI extremo).
+Zona marginal: 11:00–12:00 Bolivia (solo si setup perfecto y muy claro).
+NO operar: después de las 12:00 Bolivia, fines de semana, días de noticias macro.
+Estrategias: ORB 15min US100 (win rate 58-62%, ventana 09:45-11:00) y VWAP Reversion GOLD (win rate 60-65%, todo el día NY).
+Responde SIEMPRE en español. Directo, máx 150 palabras.
+Cuando des señales: dirección, entrada, SL en pts, TP1, TP2, R:R, lotes (mín 0.01).
+Reglas: máx 1% riesgo/op ($5.41), SL=1.5×ATR, RR≥1:1.5.
+NO recomendar operar fuera de la ventana 09:45-11:00 salvo excepciones muy claras.`;
+
+const hist={d:[],m:[]};
+const qpList=['¿Opero ahora?','¿Hay setup ORB hoy?','GOLD: ¿VWAP disponible?','Calcular lotes 0.01','¿Noticias importantes hoy?'];
+
+function buildQPs(id,sc){
+  const el=document.getElementById(id);if(!el)return;
+  el.innerHTML=qpList.map(p=>`<div class="qp" onclick="sendQ('${p}','${sc}')">${p}</div>`).join('');
+}
+buildQPs('qps-d','d');buildQPs('qps-m','m');
+
+function getCtx(){
+  const bm=getBoliviaMinutes();
+  const bh=Math.floor(bm/60).toString().padStart(2,'0');
+  const bmin=(bm%60).toString().padStart(2,'0');
+  const gd=marketData.GOLD,ud=marketData.US100;
+  let ctx=`Hora Bolivia: ${bh}:${bmin}. `;
+  if(gd)ctx+=`GOLD: precio=${gd.price} RSI=${gd.rsi} EMA50=${gd.ema50} EMA200=${gd.ema200} ATR=${gd.atr} sesgo=${gd.bias.text}. `;
+  if(ud)ctx+=`US100: precio=${ud.price} RSI=${ud.rsi} EMA50=${ud.ema50} ATR=${ud.atr} ORB max=${ud.orbHigh.toFixed(0)} min=${ud.orbLow.toFixed(0)} sesgo=${ud.bias.text}.`;
+  const v=computeVerdict();
+  ctx+=` Veredicto app: ${v.label} — ${v.strategy}.`;
+  return ctx;
+}
+
+function addMsg(sc,role,content){
+  const el=document.getElementById('msgs-'+sc);if(!el)return;
+  const isu=role==='user';
+  const t=new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+  const d=document.createElement('div');d.className=`msg${isu?' user':''}`;
+  d.innerHTML=`<div class="mav ${isu?'mav-u':'mav-ai'}">${isu?'👤':'AI'}</div>
+    <div><div class="mb ${isu?'mb-u':'mb-ai'}">${content}</div><div class="mtime">${t}</div></div>`;
+  el.appendChild(d);el.scrollTop=el.scrollHeight;
+}
+function addLoad(sc){
+  const el=document.getElementById('msgs-'+sc);if(!el)return;
+  const d=document.createElement('div');d.className='msg';d.id='ld-'+sc;
+  d.innerHTML=`<div class="mav mav-ai">AI</div><div><div class="mb mb-ai"><div class="ldots"><span></span><span></span><span></span></div></div></div>`;
+  el.appendChild(d);el.scrollTop=el.scrollHeight;
+}
+async function send(sc){
+  const inp=document.getElementById('ci-'+sc);
+  const txt=inp.value.trim();if(!txt)return;
+  const ctx=getCtx();
+  addMsg(sc,'user',txt);
+  hist[sc].push({role:'user',content:txt+(ctx?'\n\n[Contexto: '+ctx+']':'')});
+  inp.value='';inp.style.height='auto';
+  document.getElementById('sb-'+sc).disabled=true;
+  addLoad(sc);
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:SYS,messages:hist[sc]})
+    });
+    const data=await res.json();
+    const reply=data.content?.[0]?.text||'Error.';
+    document.getElementById('ld-'+sc)?.remove();
+    hist[sc].push({role:'assistant',content:reply});
+    addMsg(sc,'assistant',reply.replace(/\n/g,'<br>'));
+  }catch(e){
+    document.getElementById('ld-'+sc)?.remove();
+    addMsg(sc,'assistant','Error de conexión. Inténtalo de nuevo.');
+  }
+  document.getElementById('sb-'+sc).disabled=false;
+}
+function sendQ(txt,sc){document.getElementById('ci-'+sc).value=txt;send(sc);}
+function hk(e,sc){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send(sc);}}
+function ar(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,90)+'px';}
+
+// Welcome
+setTimeout(()=>{
+  const bm=getBoliviaMinutes();const bh=Math.floor(bm/60);
+  const sesion=bh>=9&&bh<12?'🟢 Ventana principal activa (09:30–12:00)':bh>=8&&bh<9?'🟡 Pre-NY — VWAP GOLD disponible':bh>=21&&bh<23?'📋 Horario de preparación':'⏰ Fuera de ventana de trading';
+  const w=`¡Hola Daniel! APEX SCALPER listo.<br><br>
+📍 <strong>Santa Cruz, Bolivia (UTC-4)</strong><br>
+⭐ <strong>Ventana de oro: 09:45–11:00 Bolivia</strong><br>
+📊 ORB US100 (58-62%) + VWAP GOLD (60-65%)<br><br>
+${sesion}<br><br>
+El veredicto te dice exactamente qué hacer en cada momento. ¿Alguna duda?`;
+  addMsg('d','assistant',w);addMsg('m','assistant',w);
+},600);
+</script>
+</body>
+</html>
