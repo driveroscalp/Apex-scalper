@@ -355,11 +355,13 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
         <div class="tab active" onclick="switchTab('e',this)">ESTRATEGIAS</div>
         <div class="tab" onclick="switchTab('r',this)">RIESGO XTB</div>
         <div class="tab" onclick="switchTab('xtb',this)">ALERTAS XTB</div>
+        <div class="tab" onclick="switchTab('diario',this)">📖 DIARIO</div>
         <div class="tab" onclick="switchTab('i',this)">INDICADORES</div>
       </div>
       <div class="tab-content active" id="tc-e"></div>
       <div class="tab-content" id="tc-r"></div>
       <div class="tab-content" id="tc-xtb"></div>
+      <div class="tab-content" id="tc-diario"></div>
       <div class="tab-content" id="tc-i"></div>
     </div>
   </div>
@@ -443,6 +445,9 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
     <div class="cl" id="cl-m" style="padding:0;"></div>
   </div>
 
+  <!-- DIARIO -->
+  <div class="mob-page" id="pg-diario"><div id="mob-diario"></div></div>
+
 </div>
 
 <!-- BOTTOM NAV -->
@@ -456,8 +461,8 @@ header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-
   <button class="nb" onclick="showPg('risk',this)">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>RIESGO
   </button>
-  <button class="nb" onclick="showPg('xtb',this)">
-    <svg viewBox="0 0 24 24"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>ALERTAS
+  <button class="nb" onclick="showPg('diario',this)">
+    <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>DIARIO
   </button>
   <button class="nb" onclick="showPg('check',this)">
     <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>CHECK
@@ -549,60 +554,100 @@ function getBias(price,ema50,ema200,rsi){
 }
 
 // ══════════════════════════════════════════════
-// YAHOO FINANCE FETCH
+// TWELVE DATA — TIEMPO REAL
 // ══════════════════════════════════════════════
-const PROXY='https://corsproxy.io/?';
+const TD_KEY='7f965aa37ef348059ece3ad2ebb3a332';
+const TD_BASE='https://api.twelvedata.com';
+const TD_SYMBOLS={GOLD:'XAU/USD',US100:'NDX'};
 let marketData={GOLD:null,US100:null};
 let alertsEnabled=true,lastAlertTime=0;
 let setupLog=[];try{setupLog=JSON.parse(localStorage.getItem('apex_log')||'[]');}catch(e){}
 
-async function fetchTicker(sym,label){
-  const now=Math.floor(Date.now()/1000);
-  const from=now-60*60*8;
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=5m&period1=${from}&period2=${now}&includePrePost=false`;
-  const res=await fetch(PROXY+encodeURIComponent(url),{headers:{'Accept':'application/json'}});
-  if(!res.ok)throw new Error('HTTP '+res.status);
-  const json=await res.json();
-  const r=json?.chart?.result?.[0];if(!r)throw new Error('Sin datos');
-  const q=r.indicators.quote[0];
-  const closes=q.close.filter(x=>x!=null);
-  const highs=q.high.filter(x=>x!=null);
-  const lows=q.low.filter(x=>x!=null);
-  if(closes.length<15)throw new Error('Pocos datos');
-  const price=r.meta.regularMarketPrice||closes[closes.length-1];
-  const prev=r.meta.previousClose||r.meta.chartPreviousClose||closes[0];
-  const rsi=+calcRSI(closes).toFixed(1);
-  const ema50=+calcEMA(closes,50).toFixed(2);
-  const ema200=+calcEMA(closes,Math.min(200,closes.length-1)).toFixed(2);
-  const atr=+calcATR(highs,lows,closes).toFixed(2);
-  const sl=+(atr*1.5).toFixed(2);
+async function fetchTD(symbol,label){
+  // Fetch last 100 M5 candles + current price + indicators in parallel
+  const base=`${TD_BASE}`;
+  const params=`symbol=${encodeURIComponent(symbol)}&interval=5min&outputsize=100&apikey=${TD_KEY}`;
+
+  const [tsRes, rsiRes, emaRes1, emaRes2, atrRes] = await Promise.all([
+    fetch(`${base}/time_series?${params}`),
+    fetch(`${base}/rsi?${params}&time_period=14`),
+    fetch(`${base}/ema?${params}&time_period=50`),
+    fetch(`${base}/ema?${params}&time_period=200`),
+    fetch(`${base}/atr?${params}&time_period=14`),
+  ]);
+
+  const [tsJson, rsiJson, ema1Json, ema2Json, atrJson] = await Promise.all([
+    tsRes.json(), rsiRes.json(), emaRes1.json(), emaRes2.json(), atrRes.json()
+  ]);
+
+  if(tsJson.status==='error') throw new Error(tsJson.message||'Error Twelve Data');
+  if(!tsJson.values||tsJson.values.length<5) throw new Error('Sin velas');
+
+  const candles=tsJson.values; // most recent first
+  const price=+candles[0].close;
+  const prev=+candles[candles.length-1].close;
   const chg=+((price-prev)/prev*100).toFixed(2);
+
+  // Get indicator values (most recent)
+  const rsi=rsiJson.values?+parseFloat(rsiJson.values[0].rsi).toFixed(1):calcRSI(candles.map(c=>+c.close).reverse());
+  const ema50=ema1Json.values?+parseFloat(ema1Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),50);
+  const ema200=ema2Json.values?+parseFloat(ema2Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),Math.min(200,candles.length));
+  const atr=atrJson.values?+parseFloat(atrJson.values[0].atr).toFixed(2):1;
+
+  const sl=+(atr*1.5).toFixed(2);
   const bias=getBias(price,ema50,ema200,rsi);
-  // ORB range (first 3 M5 candles of NY session = 09:30-09:45 Bolivia)
-  const orbHigh=Math.max(...highs.slice(0,Math.min(3,highs.length)));
-  const orbLow=Math.min(...lows.slice(0,Math.min(3,lows.length)));
-  return{label,price:+price.toFixed(2),prev:+prev.toFixed(2),chg,rsi,ema50,ema200,atr,sl,
-    tp1:+(sl*1.5).toFixed(2),tp2:+(sl*2.5).toFixed(2),bias,orbHigh,orbLow,closes,highs,lows};
+
+  // ORB: first 3 M5 candles of NY session (09:30-09:45 Bolivia = 13:30-13:45 UTC)
+  // Find candles from today around 13:30 UTC
+  const todayUTC=new Date().toISOString().slice(0,10);
+  const nyCandles=candles.filter(c=>{
+    const dt=c.datetime;
+    return dt.startsWith(todayUTC)&&(dt.includes('13:30')||dt.includes('13:35')||dt.includes('13:40'));
+  });
+  const orbCandles=nyCandles.length>0?nyCandles:candles.slice(0,3);
+  const orbHigh=Math.max(...orbCandles.map(c=>+c.high));
+  const orbLow=Math.min(...orbCandles.map(c=>+c.low));
+
+  return{
+    label,price,prev,chg,rsi,ema50,ema200,atr,sl,
+    tp1:+(sl*1.5).toFixed(2),tp2:+(sl*2.5).toFixed(2),
+    bias,orbHigh,orbLow,
+    closes:candles.map(c=>+c.close).reverse(),
+    highs:candles.map(c=>+c.high).reverse(),
+    lows:candles.map(c=>+c.low).reverse(),
+    lastCandle:candles[0].datetime
+  };
 }
 
 async function fetchAllData(){
   document.getElementById('data-status').textContent='Actualizando...';
-  for(const [key,sym] of Object.entries({GOLD:'GC=F',US100:'NQ=F'})){
+  let ok=0;
+  for(const [key,sym] of Object.entries(TD_SYMBOLS)){
     try{
-      const d=await fetchTicker(sym,key);
+      const d=await fetchTD(sym,key);
       marketData[key]=d;
       updateSignalUI(d,key);
-    }catch(e){console.warn(key,e.message);}
+      ok++;
+    }catch(e){
+      console.warn(key,e.message);
+      // Fallback message
+      document.getElementById('data-status').textContent='⚠️ Error: '+e.message;
+    }
   }
   const t=new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
   document.getElementById('last-update').textContent=t;
-  document.getElementById('data-status').textContent='Yahoo Finance · 15min delay';
+  if(ok===2){
+    document.getElementById('data-status').textContent='✅ Twelve Data · Tiempo real · M5';
+  }else if(ok===1){
+    document.getElementById('data-status').textContent='⚠️ Twelve Data · Un instrumento con error';
+  }
   updateVerdict();
   updateXTBLevels();
   evaluateAndAlert();
 }
 fetchAllData();
-setInterval(fetchAllData,15*60*1000);
+// Refresh every 5 min — synchronized with M5 candles
+setInterval(fetchAllData,5*60*1000);
 
 function updateSignalUI(d,key){
   const k=key.toLowerCase();
@@ -1057,6 +1102,7 @@ Ve a la pestaña <strong style="color:var(--gold)">ALERTAS XTB</strong> para ver
 ['tc-r','mob-rie'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=riskHTML;});
 ['tc-xtb','mob-xtb'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=xtbHTML;});
 document.getElementById('tc-i').innerHTML=indHTML;
+// Diario injected by renderDiario() called above
 
 // Checklists
 function buildCL(id){
@@ -1120,8 +1166,236 @@ function updateXTBLevels(){
 function switchTab(n,el){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
-  ['e','r','xtb','i'].forEach(x=>{const tc=document.getElementById('tc-'+x);if(tc)tc.classList.toggle('active',x===n);});
+  ['e','r','xtb','diario','i'].forEach(x=>{const tc=document.getElementById('tc-'+x);if(tc)tc.classList.toggle('active',x===n);});
+  if(n==='diario')renderDiario();
 }
+
+// ══════════════════════════════════════════════
+// DIARIO DE TRADING
+// ══════════════════════════════════════════════
+let trades=[];
+try{trades=JSON.parse(localStorage.getItem('apex_trades')||'[]');}catch(e){}
+
+function saveTrades(){try{localStorage.setItem('apex_trades',JSON.stringify(trades));}catch(e){}}
+
+function getStats(){
+  if(trades.length===0)return{total:0,wins:0,losses:0,winRate:0,pnl:0,best:0,worst:0,avgRR:0};
+  const wins=trades.filter(t=>t.resultado==='GANADORA').length;
+  const losses=trades.filter(t=>t.resultado==='PERDEDORA').length;
+  const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const rrs=trades.filter(t=>t.rr>0).map(t=>t.rr);
+  const pnls=trades.map(t=>parseFloat(t.pnl)||0);
+  return{
+    total:trades.length,wins,losses,
+    winRate:trades.length>0?(wins/trades.length*100).toFixed(1):0,
+    pnl:pnl.toFixed(2),
+    best:Math.max(...pnls).toFixed(2),
+    worst:Math.min(...pnls).toFixed(2),
+    avgRR:rrs.length>0?(rrs.reduce((a,b)=>a+b,0)/rrs.length).toFixed(2):0,
+    orbWins:trades.filter(t=>t.estrategia==='ORB 15 MIN'&&t.resultado==='GANADORA').length,
+    orbTotal:trades.filter(t=>t.estrategia==='ORB 15 MIN').length,
+    vwapWins:trades.filter(t=>t.estrategia==='VWAP REVERSION'&&t.resultado==='GANADORA').length,
+    vwapTotal:trades.filter(t=>t.estrategia==='VWAP REVERSION').length,
+  };
+}
+
+function diarioHTML(){
+  const st=getStats();
+  const pnlColor=parseFloat(st.pnl)>=0?'var(--green)':'var(--red)';
+  const wrColor=parseFloat(st.winRate)>=55?'var(--green)':parseFloat(st.winRate)>=45?'var(--gold)':'var(--red)';
+
+  return `
+  <!-- STATS SUMMARY -->
+  <div class="card" style="margin-bottom:10px;">
+    <div class="ct">📊 RESUMEN GENERAL <span class="badge-g badge">${st.total} OPS</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+      <div style="background:var(--bg4);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:4px;">WIN RATE</div>
+        <div style="font-family:var(--font-head);font-size:24px;color:${wrColor}">${st.winRate}%</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">${st.wins}G / ${st.losses}P</div>
+      </div>
+      <div style="background:var(--bg4);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:4px;">P&G TOTAL</div>
+        <div style="font-family:var(--font-head);font-size:24px;color:${pnlColor}">$${st.pnl}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">Mejor: $${st.best}</div>
+      </div>
+      <div style="background:var(--bg4);border-radius:8px;padding:10px;text-align:center;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-bottom:4px;">R:R PROM.</div>
+        <div style="font-family:var(--font-head);font-size:24px;color:var(--gold)">${st.avgRR}</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">Objetivo: 1.5</div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div style="background:var(--bg4);border-radius:8px;padding:10px;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);margin-bottom:4px;">ORB US100</div>
+        <div style="font-family:var(--font-head);font-size:18px;color:var(--cyan)">${st.orbTotal>0?(st.orbWins/st.orbTotal*100).toFixed(0):0}%</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">${st.orbWins}/${st.orbTotal} ops · Meta: 58%</div>
+      </div>
+      <div style="background:var(--bg4);border-radius:8px;padding:10px;">
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-bottom:4px;">VWAP GOLD</div>
+        <div style="font-family:var(--font-head);font-size:18px;color:var(--gold)">${st.vwapTotal>0?(st.vwapWins/st.vwapTotal*100).toFixed(0):0}%</div>
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">${st.vwapWins}/${st.vwapTotal} ops · Meta: 60%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD TRADE FORM -->
+  <div class="card" style="margin-bottom:10px;">
+    <div class="ct">➕ REGISTRAR OPERACIÓN</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+      <div>
+        <div class="calc-lbl">FECHA</div>
+        <input class="calc-inp" type="date" id="tj-fecha" value="${new Date().toISOString().split('T')[0]}">
+      </div>
+      <div>
+        <div class="calc-lbl">HORA ENTRADA</div>
+        <input class="calc-inp" type="time" id="tj-hora" value="${new Date(new Date().getTime()-4*60*60*1000).toUTCString().slice(17,22)}">
+      </div>
+      <div>
+        <div class="calc-lbl">INSTRUMENTO</div>
+        <select class="calc-inp" id="tj-inst">
+          <option>GOLD</option><option>US100</option><option>GER40</option>
+        </select>
+      </div>
+      <div>
+        <div class="calc-lbl">ESTRATEGIA</div>
+        <select class="calc-inp" id="tj-estrat">
+          <option>ORB 15 MIN</option><option>VWAP REVERSION</option><option>EMA PULLBACK</option>
+        </select>
+      </div>
+      <div>
+        <div class="calc-lbl">DIRECCIÓN</div>
+        <select class="calc-inp" id="tj-dir">
+          <option>LARGO</option><option>CORTO</option>
+        </select>
+      </div>
+      <div>
+        <div class="calc-lbl">RESULTADO</div>
+        <select class="calc-inp" id="tj-res">
+          <option>GANADORA</option><option>PERDEDORA</option><option>BREAKEVEN</option>
+        </select>
+      </div>
+      <div>
+        <div class="calc-lbl">P&G ($)</div>
+        <input class="calc-inp" type="number" id="tj-pnl" placeholder="ej: 5.41 o -4.20" step="0.01">
+      </div>
+      <div>
+        <div class="calc-lbl">R:R REAL</div>
+        <input class="calc-inp" type="number" id="tj-rr" placeholder="ej: 1.8" step="0.1">
+      </div>
+      <div>
+        <div class="calc-lbl">RSI ENTRADA</div>
+        <input class="calc-inp" type="number" id="tj-rsi" placeholder="ej: 34">
+      </div>
+      <div>
+        <div class="calc-lbl">DURACIÓN (min)</div>
+        <input class="calc-inp" type="number" id="tj-dur" placeholder="ej: 15">
+      </div>
+    </div>
+    <div style="margin-bottom:8px;">
+      <div class="calc-lbl">CHECKLIST COMPLETO</div>
+      <select class="calc-inp" id="tj-check">
+        <option value="SI">✅ Sí — todas las condiciones</option>
+        <option value="NO">❌ No — entré sin completar</option>
+        <option value="PARCIAL">⚠️ Parcial — mayoría cumplidas</option>
+      </select>
+    </div>
+    <div style="margin-bottom:8px;">
+      <div class="calc-lbl">ERRORES COMETIDOS</div>
+      <input class="calc-inp" type="text" id="tj-error" placeholder="ej: Entré sin vela de confirmación">
+    </div>
+    <div style="margin-bottom:12px;">
+      <div class="calc-lbl">NOTAS / LECCIÓN</div>
+      <input class="calc-inp" type="text" id="tj-notas" placeholder="ej: El ORB fue limpio, buen setup">
+    </div>
+    <button onclick="addTrade()" style="width:100%;padding:11px;border-radius:10px;border:none;cursor:pointer;
+      background:linear-gradient(135deg,var(--gold-dim),var(--gold));color:var(--bg);
+      font-family:var(--font-head);font-size:16px;letter-spacing:2px;">
+      GUARDAR OPERACIÓN
+    </button>
+  </div>
+
+  <!-- TRADE LIST -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div class="ct" style="margin-bottom:0;">📋 HISTORIAL (${trades.length})</div>
+      ${trades.length>0?`<button onclick="clearTrades()" style="font-family:var(--font-mono);font-size:9px;padding:4px 10px;border-radius:6px;border:1px solid rgba(255,69,96,0.3);background:rgba(255,69,96,0.1);color:var(--red);cursor:pointer;">Borrar todo</button>`:''}
+    </div>
+    <div id="trades-list">
+      ${trades.length===0?
+        '<div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);padding:10px 0;text-align:center;">Sin operaciones registradas.<br>¡Registra tu primera operación demo arriba!</div>':
+        trades.slice().reverse().map((t,i)=>`
+        <div style="padding:10px 12px;background:var(--bg4);border-radius:8px;margin-bottom:8px;
+          border-left:3px solid ${t.resultado==='GANADORA'?'var(--green)':t.resultado==='PERDEDORA'?'var(--red)':'var(--muted)'};">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div>
+              <span style="font-family:var(--font-head);font-size:14px;color:${t.inst==='GOLD'?'var(--gold)':'var(--cyan)'};">${t.inst}</span>
+              <span style="font-family:var(--font-mono);font-size:9px;color:var(--muted);margin-left:6px;">${t.estrategia}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-family:var(--font-head);font-size:16px;color:${parseFloat(t.pnl)>=0?'var(--green)':'var(--red)'};">$${t.pnl}</span>
+              <button onclick="deleteTrade(${trades.length-1-i})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;">×</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;font-family:var(--font-mono);font-size:9px;color:var(--muted);">
+            <span>${t.fecha} ${t.hora}</span>
+            <span style="color:${t.dir==='LARGO'?'var(--green)':'var(--red)'};">${t.dir}</span>
+            <span>R:R ${t.rr||'—'}</span>
+          </div>
+          ${t.error?`<div style="font-size:10px;color:var(--red);margin-top:4px;">⚠️ ${t.error}</div>`:''}
+          ${t.notas?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">💬 ${t.notas}</div>`:''}
+        </div>`).join('')
+      }
+    </div>
+  </div>`;
+}
+
+function addTrade(){
+  const t={
+    fecha:document.getElementById('tj-fecha')?.value||'',
+    hora:document.getElementById('tj-hora')?.value||'',
+    inst:document.getElementById('tj-inst')?.value||'',
+    estrategia:document.getElementById('tj-estrat')?.value||'',
+    dir:document.getElementById('tj-dir')?.value||'',
+    resultado:document.getElementById('tj-res')?.value||'',
+    pnl:document.getElementById('tj-pnl')?.value||'0',
+    rr:parseFloat(document.getElementById('tj-rr')?.value)||0,
+    rsi:document.getElementById('tj-rsi')?.value||'',
+    dur:document.getElementById('tj-dur')?.value||'',
+    check:document.getElementById('tj-check')?.value||'',
+    error:document.getElementById('tj-error')?.value||'',
+    notas:document.getElementById('tj-notas')?.value||'',
+  };
+  if(!t.fecha||!t.inst){alert('Completa al menos fecha e instrumento.');return;}
+  trades.push(t);
+  saveTrades();
+  renderDiario();
+  vibrate([100,50,100]);
+  // Clear form
+  ['tj-pnl','tj-rr','tj-rsi','tj-dur','tj-error','tj-notas'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+}
+
+function deleteTrade(idx){
+  if(!confirm('¿Borrar esta operación?'))return;
+  trades.splice(idx,1);
+  saveTrades();
+  renderDiario();
+}
+
+function clearTrades(){
+  if(!confirm('¿Borrar TODAS las operaciones? Esta acción no se puede deshacer.'))return;
+  trades=[];saveTrades();renderDiario();
+}
+
+function renderDiario(){
+  const html=diarioHTML();
+  ['tc-diario','mob-diario'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.innerHTML=html;
+  });
+}
+renderDiario();
 function showPg(n,btn){
   document.querySelectorAll('.mob-page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
@@ -1141,6 +1415,7 @@ VENTANA DE ORO: 09:45–11:00 Bolivia (apertura NY). Esta es la única ventana p
 Ventana secundaria: 08:00–09:29 Bolivia (pre-NY, solo VWAP GOLD si RSI extremo).
 Zona marginal: 11:00–12:00 Bolivia (solo si setup perfecto y muy claro).
 NO operar: después de las 12:00 Bolivia, fines de semana, días de noticias macro.
+Fuente de datos: Twelve Data API — precios en TIEMPO REAL, velas M5.
 Estrategias: ORB 15min US100 (win rate 58-62%, ventana 09:45-11:00) y VWAP Reversion GOLD (win rate 60-65%, todo el día NY).
 Responde SIEMPRE en español. Directo, máx 150 palabras.
 Cuando des señales: dirección, entrada, SL en pts, TP1, TP2, R:R, lotes (mín 0.01).
