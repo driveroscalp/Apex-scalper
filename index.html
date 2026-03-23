@@ -674,142 +674,194 @@ function updateSignalUI(d,key){
 }
 
 // ══════════════════════════════════════════════
-// VERDICT ENGINE — the core of the app
-// Bolivia UTC-4
-// Sessions:
-//   08:00–09:29 → Pre-NY (GOLD VWAP available)
-//   09:30–09:44 → ORB forming (wait)
-//   09:45–12:00 → ORB active + VWAP
-//   12:00–16:00 → Only VWAP if clear
-//   16:00–21:00 → NY late session (light)
-//   21:00–23:00 → Prepare next day
-//   23:00–08:00 → Night (no trade)
+// VERDICT ENGINE — ACTUALIZADO
+// Estrategias:
+//   US100 → ORB 15 min (09:45–11:00 Bolivia)
+//   GOLD  → ORB 15 min (09:45–11:00 Bolivia)
+//   GOLD  → NY Retest  (09:30–11:00 Bolivia)
+// Tendencia: EMA50 vs EMA200
 // ══════════════════════════════════════════════
+
+function getTrend(d){
+  if(!d)return{trend:'NEUTRAL',color:'var(--muted)',emoji:'➡️'};
+  if(d.ema50>d.ema200*1.001)return{trend:'ALCISTA',color:'var(--green)',emoji:'🟢'};
+  if(d.ema50<d.ema200*0.999)return{trend:'BAJISTA',color:'var(--red)',emoji:'🔴'};
+  return{trend:'NEUTRAL',color:'var(--muted)',emoji:'➡️'};
+}
+
+function getLondonBias(d){
+  if(!d||!d.closes||d.closes.length<72)return{dir:'NEUTRAL',pts:0};
+  const londonOpen=d.closes[Math.max(0,d.closes.length-72)];
+  const pts=+(d.price-londonOpen).toFixed(2);
+  const threshold=d.atr*0.5;
+  if(pts>threshold)return{dir:'ALCISTA',pts};
+  if(pts<-threshold)return{dir:'BAJISTA',pts};
+  return{dir:'NEUTRAL',pts};
+}
+
+function getRetestLevel(d){
+  if(!d||!d.closes||d.closes.length<72)return null;
+  const london=getLondonBias(d);
+  if(london.dir==='NEUTRAL')return null;
+  const londonOpen=d.closes[Math.max(0,d.closes.length-72)];
+  const level=+londonOpen.toFixed(2);
+  const buffer=+(d.atr*0.35).toFixed(2);
+  const alertLevel=london.dir==='ALCISTA'?+(level+buffer).toFixed(2):+(level-buffer).toFixed(2);
+  const nearLevel=Math.abs(d.price-level)<d.atr*1.5;
+  return{level,alertLevel,london,nearLevel};
+}
+
+function getGoldORB(d){
+  if(!d||!d.highs||!d.lows||d.highs.length<3)return null;
+  const n=Math.min(3,d.highs.length);
+  const high=Math.max(...d.highs.slice(d.highs.length-n));
+  const low=Math.min(...d.lows.slice(d.lows.length-n));
+  const range=+(high-low).toFixed(2);
+  if(range<d.atr*0.5)return{valid:false,high:+high.toFixed(2),low:+low.toFixed(2),range};
+  return{valid:true,high:+high.toFixed(2),low:+low.toFixed(2),range};
+}
+
 function computeVerdict(){
   const bm=getBoliviaMinutes();
   const bh=Math.floor(bm/60);
   const wk=isWeekend();
   const gd=marketData.GOLD,ud=marketData.US100;
 
-  if(wk)return{
-    type:'prep',icon:'📅',label:'FIN DE SEMANA',strategy:'MERCADO CERRADO',
-    detail:'El mercado Forex/CFD cierra el viernes a las 17:00 Bolivia y reabre el domingo a las 18:00 Bolivia.',
-    action:'Aprovecha para revisar tu diario de trading y preparar los niveles del lunes.',
-    levels:null,color:'var(--muted)'
-  };
+  if(wk)return{type:'prep',icon:'📅',label:'FIN DE SEMANA',strategy:'MERCADO CERRADO',
+    detail:'El mercado cierra el viernes 17:00 Bolivia y reabre el domingo 18:00 Bolivia.',
+    action:'Revisa tu diario de trading y prepara los niveles del lunes.',levels:null,color:'var(--muted)'};
 
-  // Night zone
-  if(bh<8||(bh>=23)){return{
-    type:'prep',icon:'🌙',label:'ZONA TRANQUILA',strategy:'PREPARACIÓN',
-    detail:`Son las ${Math.floor(bm/60).toString().padStart(2,'0')}:${(bm%60).toString().padStart(2,'0')} en Bolivia. Sin sesiones activas con suficiente volumen para scalping.`,
-    action:'Revisa los niveles de GOLD y US100 para mañana. Configura alertas en XTB para las 08:00.',
-    levels:null,color:'var(--muted)'
-  };}
+  if(bh<8||(bh>=23)){return{type:'prep',icon:'🌙',label:'ZONA TRANQUILA',strategy:'PREPARACIÓN',
+    detail:'Sin sesiones activas. Horario de preparación.',
+    action:'Revisa niveles de GOLD y US100 para mañana. Configura alertas en XTB.',
+    levels:null,color:'var(--muted)'};}
 
-  // 08:00–09:29 → Pre-NY, GOLD VWAP window
+  const goldTrend=getTrend(gd);
+  const londonBias=gd?getLondonBias(gd):{dir:'NEUTRAL',pts:0};
+  const retestInfo=gd?getRetestLevel(gd):null;
+  const goldOrb=gd?getGoldORB(gd):null;
+
+  // 08:00–09:29 PRE-NY
   if(bh>=8&&bm<9*60+30){
     const minsToNY=9*60+30-bm;
-    if(!gd)return{type:'wait',icon:'⏳',label:'ESPERANDO DATOS',strategy:'CARGANDO...',detail:'Obteniendo datos...',action:'',levels:null,color:'var(--gold)'};
-    const vwapDist=gd.atr*1.5;
-    const vwapZone=gd.rsi<35||gd.rsi>68;
-    if(vwapZone&&gd.rsi<35){return{
-      type:'watch',icon:'👁',label:'VIGILAR',strategy:'VWAP REVERSION GOLD',
-      detail:`RSI GOLD en ${gd.rsi} (sobreventa). Precio alejado del promedio. Posible rebote si aparece vela de reversión M5.`,
-      action:`Buscar PIN BAR o ENGULFING alcista en M5. SL: ${gd.sl} pts | TP1: ${gd.tp1} | TP2: ${gd.tp2} | Lotes: 0.01`,
-      levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'RSI',v:gd.rsi,c:'var(--green)'}],
-      color:'var(--cyan)'
-    };}
-    return{
-      type:'wait',icon:'⏳',label:'ESPERAR',strategy:`NY ABRE EN ${fmtMin(minsToNY)}`,
-      detail:`NY abre a las 09:30 Bolivia. El ORB de US100 empieza en ${fmtMin(minsToNY)}.${gd?` GOLD RSI: ${gd.rsi} — ${gd.rsi<40?'zona de sobreventa, vigila rebote.':'sin setup claro aún.'}`:''}`,
-      action:'Prepara el gráfico US100 M5 en XTB. A las 09:30 empieza a formarse el rango ORB.',
-      levels:null,color:'var(--gold)'
-    };
-  }
+    if(!gd)return{type:'wait',icon:'⏳',label:'CARGANDO',strategy:'ESPERANDO DATOS',detail:'Obteniendo datos...',action:'',levels:null,color:'var(--gold)'};
+    const trendLine=`Tendencia GOLD: ${goldTrend.emoji} ${goldTrend.trend} (EMA50:${gd.ema50.toFixed(0)} vs EMA200:${gd.ema200.toFixed(0)})`;
+    const londonLine=londonBias.dir!=='NEUTRAL'?`Londres: ${londonBias.dir==='ALCISTA'?'📈':'📉'} ${londonBias.dir} (${londonBias.pts>0?'+':''}${londonBias.pts} pts)`:'Londres: Definiendo dirección...';
+    const retestLine=retestInfo?`Nivel retesteo NY: ${retestInfo.level.toFixed(1)} | Alerta TradingView: ${retestInfo.alertLevel.toFixed(1)}`:'Nivel retesteo: Calculando...';
+    return{type:'wait',icon:'⏳',label:'PRE-NY',strategy:`ABRE EN ${fmtMin(minsToNY)}`,
+      detail:`${trendLine} | ${londonLine} | ${retestLine}`,
+      action:retestInfo&&retestInfo.london.dir!=='NEUTRAL'
+        ?`Prepara alerta TradingView GOLD en ${retestInfo.alertLevel.toFixed(1)} para retesteo NY. Solo ${retestInfo.london.dir==='ALCISTA'?'LARGOS':'CORTOS'} hoy.`
+        :'Espera que Londres defina dirección. Prepara gráficos US100 y GOLD M5 en XTB.',
+      levels:[
+        {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+        {l:'LONDRES',v:londonBias.dir,c:londonBias.dir==='ALCISTA'?'var(--green)':londonBias.dir==='BAJISTA'?'var(--red)':'var(--muted)'},
+        {l:'NY ABRE',v:fmtMin(minsToNY),c:'var(--gold)'}
+      ],color:'var(--gold)'};}
 
-  // 09:30–09:44 → ORB forming
-  if(bm>=9*60+30&&bm<9*60+45){return{
-    type:'watch',icon:'👁',label:'FORMANDO RANGO',strategy:'ORB 15 MIN — ESPERAR',
-    detail:'El rango de apertura NY se está formando. NO entrar todavía. A las 09:45 tendrás el máximo y mínimo definidos.',
-    action:'Observa el máximo y mínimo de las últimas 3 velas M5 en XTB. A las 09:45 marca esos niveles.',
-    levels:ud?[{l:'ORB MAX',v:ud.orbHigh.toFixed(0),c:'var(--red)'},{l:'ORB MIN',v:ud.orbLow.toFixed(0),c:'var(--green)'},{l:'RANGO',v:(ud.orbHigh-ud.orbLow).toFixed(0)+' pts',c:'var(--cyan)'}]:null,
-    color:'var(--cyan)'
-  };}
+  // 09:30–09:44 FORMANDO RANGO
+  if(bm>=9*60+30&&bm<9*60+45){return{type:'watch',icon:'👁',label:'FORMANDO RANGO',strategy:'ORB 15 MIN — US100 Y GOLD',
+    detail:`Rango ORB formándose para US100 y GOLD. A las 09:45 marca MAX y MIN de ambos. Tendencia GOLD: ${goldTrend.emoji} ${goldTrend.trend} | Londres: ${londonBias.dir}`,
+    action:'Observa las 3 primeras velas M5 de US100 y GOLD en XTB. A las 09:45 crea 4 alertas en TradingView.',
+    levels:[
+      {l:'US100 MAX',v:ud?ud.orbHigh.toFixed(0):'—',c:'var(--red)'},
+      {l:'US100 MIN',v:ud?ud.orbLow.toFixed(0):'—',c:'var(--green)'},
+      {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color}
+    ],color:'var(--cyan)'};}
 
-  // ── 09:45–11:00 → VENTANA DE ORO ──
+  // 09:45–11:00 VENTANA DE ORO
   if(bm>=9*60+45&&bm<11*60){
     if(!ud&&!gd)return{type:'wait',icon:'⏳',label:'CARGANDO',strategy:'...',detail:'Cargando datos...',action:'',levels:null,color:'var(--gold)'};
-    const orbLong=ud&&ud.price>ud.orbHigh&&ud.rsi>50;
-    const orbShort=ud&&ud.price<ud.orbLow&&ud.rsi<50;
-    if(orbLong){return{
-      type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — US100 ⭐',
-      detail:`US100 rompió el MAX del rango (${ud.orbHigh.toFixed(0)}) con RSI ${ud.rsi}. Ventana de oro activa. Condiciones cumplidas.`,
-      action:`LARGO US100 ahora. SL: ${ud.sl.toFixed(0)} pts | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
-      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],
-      color:'var(--green)'
-    };}
-    if(orbShort){return{
-      type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — US100 ⭐',
-      detail:`US100 rompió el MIN del rango (${ud.orbLow.toFixed(0)}) con RSI ${ud.rsi}. Ventana de oro activa. Condiciones cumplidas.`,
-      action:`CORTO US100 ahora. SL: ${ud.sl.toFixed(0)} pts | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
-      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],
-      color:'var(--green)'
-    };}
-    // VWAP GOLD simultáneo
-    if(gd&&(gd.rsi<32||gd.rsi>70)){return{
-      type:'watch',icon:'👁',label:'VIGILAR',strategy:'VWAP REVERSION — GOLD',
-      detail:`Sin setup ORB en US100 aún. RSI GOLD ${gd.rsi} — ${gd.rsi<32?'sobreventa, posible rebote.':'sobrecompra, posible caída.'} Ventana de oro activa.`,
-      action:`Buscar PIN BAR o ENGULFING en GOLD M5. SL: ${gd.sl} | TP1: ${gd.tp1} | Lotes: 0.01`,
-      levels:[{l:'RSI GOLD',v:gd.rsi,c:gd.rsi<32?'var(--green)':'var(--red)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'}],
-      color:'var(--cyan)'
-    };}
-    // Esperando ruptura ORB
     const minsLeft=11*60-bm;
-    return{
-      type:'wait',icon:'⏳',label:'ESPERAR RUPTURA',strategy:`ORB US100 — QUEDAN ${fmtMin(minsLeft)}`,
-      detail:ud?`⭐ VENTANA DE ORO activa. ORB MAX: ${ud.orbHigh.toFixed(0)} / MIN: ${ud.orbLow.toFixed(0)} (rango ${(ud.orbHigh-ud.orbLow).toFixed(0)} pts). Precio: ${ud.price.toFixed(0)}. Esperando cierre de vela M5 fuera del rango.`:'Cargando datos...',
-      action:'Vela M5 cierra por encima del MAX → LARGO. Por debajo del MIN → CORTO. Confirma RSI>50 o <50.',
-      levels:ud?[{l:'ORB MAX',v:ud.orbHigh.toFixed(0),c:'var(--red)'},{l:'PRECIO',v:ud.price.toFixed(0),c:'var(--text)'},{l:'ORB MIN',v:ud.orbLow.toFixed(0),c:'var(--green)'}]:null,
-      color:'var(--gold)'
-    };
-  }
 
-  // ── 11:00–12:00 → ZONA MARGINAL ──
+    // PRIORIDAD 1: ORB US100
+    const orbLongUS=ud&&ud.price>ud.orbHigh&&ud.rsi>50;
+    const orbShortUS=ud&&ud.price<ud.orbLow&&ud.rsi<50;
+    if(orbLongUS)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — US100 ⭐',
+      detail:`US100 rompió MAX (${ud.orbHigh.toFixed(0)}) con RSI ${ud.rsi}. Condiciones cumplidas.`,
+      action:`LARGO US100. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
+      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],color:'var(--green)'};
+    if(orbShortUS)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — US100 ⭐',
+      detail:`US100 rompió MIN (${ud.orbLow.toFixed(0)}) con RSI ${ud.rsi}. Condiciones cumplidas.`,
+      action:`CORTO US100. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | R:R 1:1.5 | Lotes: 0.01`,
+      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'}],color:'var(--green)'};
+
+    // PRIORIDAD 2: ORB GOLD
+    if(gd&&goldOrb&&goldOrb.valid){
+      const orbLongG=gd.price>goldOrb.high&&gd.rsi>50&&goldTrend.trend!=='BAJISTA';
+      const orbShortG=gd.price<goldOrb.low&&gd.rsi<50&&goldTrend.trend!=='ALCISTA';
+      if(orbLongG)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — GOLD 🥇',
+        detail:`GOLD rompió MAX ORB (${goldOrb.high.toFixed(1)}) con RSI ${gd.rsi}. Tendencia: ${goldTrend.trend}.`,
+        action:`LARGO GOLD. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | TP2: ${gd.tp2.toFixed(2)} | R:R 1:1.5 | Lotes: 0.01`,
+        levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'TP2',v:gd.tp2.toFixed(2),c:'var(--green)'}],color:'var(--gold)'};
+      if(orbShortG)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — GOLD 🥇',
+        detail:`GOLD rompió MIN ORB (${goldOrb.low.toFixed(1)}) con RSI ${gd.rsi}. Tendencia: ${goldTrend.trend}.`,
+        action:`CORTO GOLD. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | TP2: ${gd.tp2.toFixed(2)} | R:R 1:1.5 | Lotes: 0.01`,
+        levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'TP2',v:gd.tp2.toFixed(2),c:'var(--green)'}],color:'var(--gold)'};
+    }
+
+    // PRIORIDAD 3: NY RETEST GOLD
+    if(gd&&retestInfo&&londonBias.dir!=='NEUTRAL'){
+      const rsiNeutral=gd.rsi>=40&&gd.rsi<=60;
+      const retestLong=londonBias.dir==='ALCISTA'&&retestInfo.nearLevel&&rsiNeutral&&goldTrend.trend!=='BAJISTA';
+      const retestShort=londonBias.dir==='BAJISTA'&&retestInfo.nearLevel&&rsiNeutral&&goldTrend.trend!=='ALCISTA';
+      if(retestLong)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'NY RETEST LARGO — GOLD 🎯',
+        detail:`GOLD retestea ${retestInfo.level.toFixed(1)} (roto por Londres +${londonBias.pts} pts). RSI ${gd.rsi} neutral. Tendencia: ${goldTrend.trend}. Confirma rebote en XTB.`,
+        action:`LARGO GOLD si rebota en ${retestInfo.level.toFixed(1)}. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | Lotes: 0.01`,
+        levels:[{l:'NIVEL',v:retestInfo.level.toFixed(1),c:'var(--gold)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'}],color:'var(--gold)'};
+      if(retestShort)return{type:'operate',icon:'✅',label:'OPERAR',strategy:'NY RETEST CORTO — GOLD 🎯',
+        detail:`GOLD retestea ${retestInfo.level.toFixed(1)} (roto por Londres ${londonBias.pts} pts). RSI ${gd.rsi} neutral. Tendencia: ${goldTrend.trend}. Confirma rebote en XTB.`,
+        action:`CORTO GOLD si rebota en ${retestInfo.level.toFixed(1)}. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | Lotes: 0.01`,
+        levels:[{l:'NIVEL',v:retestInfo.level.toFixed(1),c:'var(--gold)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'}],color:'var(--gold)'};
+      // Cerca del nivel — vigilar
+      if(retestInfo.nearLevel)return{type:'watch',icon:'👁',label:'VIGILAR',strategy:'NY RETEST GOLD — CERCA 🎯',
+        detail:`GOLD se acerca al nivel ${retestInfo.level.toFixed(1)}. Londres: ${londonBias.dir} (${londonBias.pts>0?'+':''}${londonBias.pts} pts). RSI: ${gd.rsi}. Tendencia: ${goldTrend.trend}.`,
+        action:`Crea alerta TradingView en ${retestInfo.alertLevel.toFixed(1)}. Cuando llegue confirma rebote en XTB. Solo ${londonBias.dir==='ALCISTA'?'LARGO':'CORTO'}.`,
+        levels:[{l:'NIVEL',v:retestInfo.level.toFixed(1),c:'var(--gold)'},{l:'ALERTA TV',v:retestInfo.alertLevel.toFixed(1),c:'var(--cyan)'},{l:'RSI',v:gd.rsi,c:'var(--text)'}],color:'var(--gold)'};
+    }
+
+    // Esperando señal
+    return{type:'wait',icon:'⏳',label:'ESPERAR SEÑAL',strategy:`VENTANA ACTIVA — QUEDAN ${fmtMin(minsLeft)}`,
+      detail:gd&&ud?`⭐ Ventana de oro activa. US100 ORB: MAX ${ud.orbHigh.toFixed(0)} / MIN ${ud.orbLow.toFixed(0)} | GOLD tendencia: ${goldTrend.emoji} ${goldTrend.trend} | Londres: ${londonBias.dir}${retestInfo?' | Retest GOLD: '+retestInfo.level.toFixed(1)+' (TV: '+retestInfo.alertLevel.toFixed(1)+')':''}`:
+      'Esperando datos...',
+      action:`US100: vela M5 cierra fuera del rango ORB. GOLD: ${retestInfo?'retesteo en '+retestInfo.level.toFixed(1):'ORB o retesteo Londres'}.`,
+      levels:gd&&ud?[
+        {l:'US100 ORB',v:`${ud.orbHigh.toFixed(0)}/${ud.orbLow.toFixed(0)}`,c:'var(--cyan)'},
+        {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+        {l:'RETEST',v:retestInfo?retestInfo.level.toFixed(1):'—',c:'var(--gold)'}
+      ]:null,color:'var(--gold)'};}
+
+  // 11:00–12:00 ZONA MARGINAL
   if(bm>=11*60&&bh<12){
-    const orbLong=ud&&ud.price>ud.orbHigh&&ud.rsi>55;
-    const orbShort=ud&&ud.price<ud.orbLow&&ud.rsi<45;
-    if(orbLong||orbShort){return{
-      type:'watch',icon:'👁',label:'SETUP MARGINAL',strategy:`ORB ${orbLong?'LARGO':'CORTO'} — SOLO SI MUY CLARO`,
-      detail:`ORB sigue activo pero el momentum de apertura baja. ${orbLong?`US100 sobre MAX ${ud.orbHigh.toFixed(0)}`:`US100 bajo MIN ${ud.orbLow.toFixed(0)}`} con RSI ${ud.rsi}. Mayor selectividad requerida.`,
-      action:`Solo entrar si la vela de ruptura M5 es muy limpia y el MACD confirma. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | Lotes: 0.01`,
-      levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'RSI',v:ud.rsi,c:'var(--text)'}],
-      color:'var(--gold)'
-    };}
-    return{
-      type:'no',icon:'🚫',label:'NO OPERAR',strategy:'VENTANA CERRADA',
-      detail:'Las 11:00 Bolivia marca el fin de la ventana de oro ORB. El momentum de apertura NY se agota. Riesgo de señales falsas aumenta significativamente.',
-      action:'Tu operativa ha terminado por hoy. Si tienes posición abierta, gestiona el SL. Prepara análisis a las 21:00.',
-      levels:null,color:'var(--red)'
-    };
-  }
+    if(gd&&retestInfo&&londonBias.dir!=='NEUTRAL'){
+      const muyNear=Math.abs(gd.price-retestInfo.level)<gd.atr*0.5;
+      if(muyNear&&gd.rsi>=40&&gd.rsi<=60)return{type:'watch',icon:'👁',label:'SETUP MARGINAL',strategy:'NY RETEST GOLD — LÍMITE',
+        detail:`GOLD en nivel ${retestInfo.level.toFixed(1)}. Momentum bajando. Solo si vela M5 muy limpia.`,
+        action:`Solo entrar si rebote muy claro. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | Alta selectividad.`,
+        levels:[{l:'NIVEL',v:retestInfo.level.toFixed(1),c:'var(--gold)'},{l:'RSI',v:gd.rsi,c:'var(--text)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'}],color:'var(--gold)'};
+    }
+    return{type:'no',icon:'🚫',label:'NO OPERAR',strategy:'VENTANA CERRADA',
+      detail:'Las 11:00 Bolivia cierra la ventana de oro. Momentum NY se agota.',
+      action:'Operativa terminada por hoy. Gestiona SL si tienes posición. Prepara análisis a las 21:00.',
+      levels:null,color:'var(--red)'};}
 
-  // ── 12:00–21:00 → FUERA DE VENTANA ──
-  if(bh>=12&&bh<21){return{
-    type:'no',icon:'🚫',label:'NO OPERAR',strategy:'FUERA DE TU VENTANA',
-    detail:`${bh<17?'Sesión NY activa pero fuera de tu ventana operativa (09:45–11:00).':'NY cerrando. Liquidez muy baja.'} No hay estrategia válida para este horario en tu sistema.`,
-    action:bh>=16?'Cierra posiciones abiertas antes de las 17:00 Bolivia. NY cierra a esa hora.':'Aprovecha para revisar cómo fue tu operativa de la mañana. Prepara análisis a las 21:00.',
-    levels:null,color:'var(--red)'
-  };}
+  // 12:00–21:00 FUERA DE VENTANA
+  if(bh>=12&&bh<21)return{type:'no',icon:'🚫',label:'NO OPERAR',strategy:'FUERA DE TU VENTANA',
+    detail:`${bh<17?'NY activa pero fuera de tu ventana (09:45–11:00).':'NY cerrando. Liquidez muy baja.'}`,
+    action:bh>=16?'Cierra posiciones antes de las 17:00 Bolivia.':'Revisa tu operativa de hoy. Prepara análisis a las 21:00.',
+    levels:null,color:'var(--red)'};
 
-  // 21:00–23:00 → Preparation
-  return{
-    type:'prep',icon:'📋',label:'PREPARACIÓN',strategy:'ANÁLISIS PARA MAÑANA',
-    detail:'Horario ideal para preparar el día siguiente. Revisa niveles clave y configura alertas en XTB.',
-    action:gd&&ud?`GOLD cierra en ${gd.price}. US100 cierra en ${ud.price.toFixed(0)}. Configura alertas en XTB en EMA50 GOLD (${gd.ema50}) y máx/mín del día.`:'Configura alertas de precio en XTB para los niveles clave de mañana.',
-    levels:gd?[{l:'GOLD',v:gd.price.toFixed(1),c:'var(--gold)'},{l:'EMA50',v:gd.ema50.toFixed(1),c:'var(--gold)'},{l:'RSI',v:gd.rsi,c:'var(--muted)'}]:null,
-    color:'var(--muted)'
-  };
+  // 21:00–23:00 PREPARACIÓN
+  return{type:'prep',icon:'📋',label:'PREPARACIÓN',strategy:'ANÁLISIS PARA MAÑANA',
+    detail:gd?`GOLD: ${gd.price} | Tendencia: ${goldTrend.emoji} ${goldTrend.trend} | EMA50: ${gd.ema50.toFixed(0)} vs EMA200: ${gd.ema200.toFixed(0)} | Mañana solo: ${goldTrend.trend==='ALCISTA'?'LARGOS':'BAJISTA'==='BAJISTA'?'CORTOS':'ESPERAR CONFIRMACIÓN'}`:'Configura alertas en XTB para mañana.',
+    action:gd?`Crea alerta TradingView GOLD cerca de ${(gd.ema50).toFixed(1)} para retesteo. ${ud?'US100 cierra en '+ud.price.toFixed(0)+'.':''}`:'Configura alertas en XTB.',
+    levels:gd?[
+      {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+      {l:'EMA50',v:gd.ema50.toFixed(1),c:'var(--gold)'},
+      {l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'}
+    ]:null,color:'var(--muted)'};
 }
+
 
 function updateVerdict(){
   const v=computeVerdict();
@@ -938,31 +990,32 @@ function toggleAlerts(){
 // STATIC CONTENT
 // ══════════════════════════════════════════════
 const checkData=[
-  {l:'Veredicto app = ✅ OPERAR o 👁 VIGILAR',d:'No entrar en zona NO OPERAR'},
-  {l:'Sesión activa con volumen',d:'NY 09:30–12:00 Bolivia = ventana principal'},
+  {l:'Filtro H1 verificado',d:'EMA50 H1 sobre EMA200 = alcista · bajo = bajista · juntas = no operar'},
+  {l:'Veredicto APEX = ✅ OPERAR o 👁 VIGILAR',d:'No entrar en zona NO OPERAR'},
+  {l:'Sesión activa NY (09:30–11:00 Bolivia)',d:'Ventana principal — mayor volumen'},
   {l:'Sin noticias de alto impacto',d:'NFP, CPI, Fed, PIB = no operar ese día'},
-  {l:'RSI confirmado',d:'ORB: RSI>50 largo / <50 corto. VWAP: RSI<32 o >68'},
-  {l:'Vela de confirmación M5',d:'Pin bar, engulfing o inside bar'},
-  {l:'Precio rompió el nivel clave',d:'ORB: fuera del rango. VWAP: lejos del promedio'},
-  {l:'MACD en la misma dirección',d:'Histograma positivo (largo) o negativo (corto)'},
+  {l:'Estrategia definida antes de entrar',d:'ORB · NY Retest · EMA+RSI — solo una a la vez'},
+  {l:'RSI confirma dirección',d:'ORB: >50 largo / <50 corto · EMA+RSI: cruza nivel 50'},
+  {l:'EMA50 M5 alineada con EMA50 H1',d:'No operar contra la tendencia macro'},
+  {l:'MACD visual confirma (opcional)',d:'Solo visual — NO usar niveles de terceros'},
   {l:'RR mínimo 1:1.5',d:'TP1 = 1.5× el SL mínimo'},
   {l:'Lote calculado = 0.01',d:'Riesgo máx $5.41 (1% de $541)'},
 ];
 
 const stratHTML=`
 <div class="card">
-  <div class="ct">🎯 TU SISTEMA DE TRADING</div>
+  <div class="ct">🎯 TU SISTEMA COMPLETO</div>
   <div style="background:rgba(0,227,150,0.06);border:1px solid rgba(0,227,150,0.2);border-radius:8px;padding:12px;margin-bottom:14px;">
     <table style="width:100%;font-size:11px;border-collapse:collapse;">
       <thead><tr style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">
-        <th style="padding:5px 8px;text-align:left;">HORA BOLIVIA</th><th style="padding:5px 8px;">QUÉ HACER</th><th style="padding:5px 8px;">INSTRUMENTO</th>
+        <th style="padding:5px 8px;text-align:left;">HORA BOLIVIA</th><th style="padding:5px 8px;">ESTRATEGIA</th><th style="padding:5px 8px;">INSTRUMENTO</th>
       </tr></thead>
       <tbody>
-        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">08:00–09:29</td><td style="padding:6px 8px;font-size:11px;">VWAP GOLD si RSI extremo</td><td style="padding:6px 8px;color:var(--gold);font-family:var(--font-mono);font-size:10px;">GOLD</td></tr>
-        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">09:30–09:44</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Esperar — formando rango ORB</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100</td></tr>
-        <tr style="border-top:1px solid var(--border);background:rgba(0,227,150,0.07);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--green);">09:45–11:00 ⭐</td><td style="padding:6px 8px;font-size:11px;color:var(--green);font-weight:600;">VENTANA DE ORO — ORB US100 + VWAP GOLD</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100 + GOLD</td></tr>
-        <tr style="border-top:1px solid var(--border);background:rgba(245,200,66,0.04);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">11:00–12:00</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Solo si setup perfecto (⭐⭐ calidad)</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100</td></tr>
-        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--red);">12:00–16:00</td><td style="padding:6px 8px;font-size:11px;color:var(--red);">NO OPERAR</td><td style="padding:6px 8px;color:var(--muted);font-family:var(--font-mono);font-size:10px;">—</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">08:00–09:29</td><td style="padding:6px 8px;font-size:11px;">EMA+RSI si señal clara en H1</td><td style="padding:6px 8px;color:var(--gold);font-family:var(--font-mono);font-size:10px;">GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">09:30–09:44</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Esperar — formando rango ORB</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100 + GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(0,227,150,0.07);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--green);">09:45–11:00 ⭐</td><td style="padding:6px 8px;font-size:11px;color:var(--green);font-weight:600;">ORB US100 + ORB GOLD + NY Retest + EMA+RSI</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100 + GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);background:rgba(245,200,66,0.04);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--gold);">11:00–12:00</td><td style="padding:6px 8px;font-size:11px;color:var(--gold);">Solo si setup muy claro</td><td style="padding:6px 8px;color:var(--cyan);font-family:var(--font-mono);font-size:10px;">US100 + GOLD</td></tr>
+        <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--red);">12:00+</td><td style="padding:6px 8px;font-size:11px;color:var(--red);">NO OPERAR</td><td style="padding:6px 8px;color:var(--muted);font-family:var(--font-mono);font-size:10px;">—</td></tr>
         <tr style="border-top:1px solid var(--border);"><td style="padding:6px 8px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">21:00–23:00</td><td style="padding:6px 8px;font-size:11px;">Preparar día siguiente</td><td style="padding:6px 8px;color:var(--muted);font-family:var(--font-mono);font-size:10px;">—</td></tr>
       </tbody>
     </table>
@@ -970,40 +1023,135 @@ const stratHTML=`
 </div>
 
 <div class="card">
-  <div class="ct">ORB 15 MIN — US100 <span class="badge-g badge">WIN RATE 58-62%</span></div>
+  <div class="ct">1️⃣ ORB 15 MIN — US100 <span class="badge-g badge">WIN RATE 58-62%</span></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">
+    El precio de US100 en los primeros 15 min de NY forma un rango. Cuando lo rompe con fuerza, el momentum continúa en esa dirección. Estrategia 100% mecánica — o rompió o no rompió.
+  </div>
   <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">58–62%</div></div>
   <div class="steps">
-    <div class="step"><div class="sn">1</div><div class="st">09:30 Bolivia — NY abre. <strong>Espera sin entrar.</strong></div></div>
-    <div class="step"><div class="sn">2</div><div class="st">09:45 Bolivia — El rango está definido. Marca el <strong>MÁXIMO y MÍNIMO</strong> de las 3 primeras velas M5.</div></div>
-    <div class="step"><div class="sn">3</div><div class="st">Espera que una vela M5 <strong>cierre fuera del rango</strong> + RSI>50 (largo) o RSI<50 (corto).</div></div>
-    <div class="step"><div class="sn">4</div><div class="st">Entra al cierre de esa vela. <strong>SL dentro del rango</strong> o 1.5×ATR.</div></div>
-    <div class="step"><div class="sn">5</div><div class="st">TP1 = amplitud del rango. Cierra <strong>50% en TP1</strong>, mueve SL a BE, deja correr el 50%.</div></div>
+    <div class="step"><div class="sn">1</div><div class="st"><strong>09:30 Bolivia</strong> — NY abre. NO entrar. Observas las 3 primeras velas M5 de US100.</div></div>
+    <div class="step"><div class="sn">2</div><div class="st"><strong>09:45 Bolivia</strong> — Rango definido. Marca el MAX y MIN. Crea 2 alertas en TradingView.</div></div>
+    <div class="step"><div class="sn">3</div><div class="st">Espera vela M5 que <strong>cierre fuera del rango</strong> + RSI>50 (largo) o RSI<50 (corto).</div></div>
+    <div class="step"><div class="sn">4</div><div class="st">Entrada al cierre de esa vela. <strong>SL dentro del rango</strong> o 1.5×ATR (APEX lo calcula).</div></div>
+    <div class="step"><div class="sn">5</div><div class="st">TP1 = amplitud del rango. <strong>Cierra 50% en TP1</strong> → mueve SL a BE → deja correr el 50%.</div></div>
   </div>
   <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
-    ⛔ <strong style="color:var(--red)">NO usar ORB</strong> si hay noticias de alto impacto antes de las 10:00 Bolivia.
+    ⛔ <strong style="color:var(--red)">NO usar</strong> si hay noticias de alto impacto antes de las 10:00 Bolivia. ⛔ <strong style="color:var(--red)">NO entrar</strong> si el rango ORB es menor a 1×ATR — demasiado estrecho, señal falsa probable.
   </div>
 </div>
 
 <div class="card">
-  <div class="ct">VWAP REVERSION — GOLD <span class="badge-g badge">WIN RATE 60-65%</span></div>
-  <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">60–65%</div></div>
+  <div class="ct">2️⃣ ORB 15 MIN — GOLD <span class="badge-g badge">WIN RATE 58-65%</span></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">
+    Exactamente igual que el ORB de US100 pero aplicado a GOLD. Misma lógica, mismas reglas. Solo añades el filtro de tendencia — solo LARGOS si EMA50 sobre EMA200, solo CORTOS si EMA50 bajo EMA200.
+  </div>
+  <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">58–65%</div></div>
   <div class="steps">
-    <div class="step"><div class="sn c">1</div><div class="st">Añade el <strong class="c">VWAP diario</strong> en XTB (indicadores → VWAP). Línea de referencia del precio justo.</div></div>
-    <div class="step"><div class="sn c">2</div><div class="st">Espera que el precio se aleje <strong class="c">1.5×ATR del VWAP</strong> con RSI<32 (largo) o RSI>68 (corto).</div></div>
-    <div class="step"><div class="sn c">3</div><div class="st">Confirma con <strong class="c">vela de reversión M5</strong> (pin bar o engulfing).</div></div>
-    <div class="step"><div class="sn c">4</div><div class="st">TP1 = el propio VWAP. Cierra <strong class="c">70% en TP1</strong>. Deja 30% para TP2.</div></div>
+    <div class="step"><div class="sn">1</div><div class="st"><strong>09:30 Bolivia</strong> — Observas las 3 primeras velas M5 de GOLD simultáneamente con US100.</div></div>
+    <div class="step"><div class="sn">2</div><div class="st"><strong>09:45 Bolivia</strong> — Marca MAX y MIN del rango GOLD. Crea 2 alertas adicionales en TradingView.</div></div>
+    <div class="step"><div class="sn">3</div><div class="st">Verifica tendencia: <strong>EMA50 sobre EMA200 = solo LARGOS · EMA50 bajo EMA200 = solo CORTOS.</strong></div></div>
+    <div class="step"><div class="sn">4</div><div class="st">Vela M5 cierra fuera del rango en dirección de la tendencia + RSI confirma → entrar.</div></div>
+    <div class="step"><div class="sn">5</div><div class="st">SL: 1.5×ATR (APEX calcula). TP1: amplitud del rango. TP2: 2× amplitud.</div></div>
   </div>
   <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
-    ⛔ <strong style="color:var(--red)">NO usar VWAP Reversion</strong> en días de tendencia fuerte (EMA50 muy separada de EMA200) ni en días de noticias macro importantes.
+    ⛔ <strong style="color:var(--red)">NO entrar</strong> si la ruptura va en contra de la tendencia EMA50/200. ⛔ <strong style="color:var(--red)">NO entrar</strong> si rango es menor a 1×ATR.
   </div>
 </div>
 
 <div class="card">
-  <div class="ct">EMA PULLBACK — SECUNDARIA <span class="badge">WIN RATE 52-55%</span></div>
+  <div class="ct">3️⃣ NY RETEST — GOLD <span class="badge-g badge">WIN RATE 75-84%</span></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">
+    Londres mueve el precio en una dirección y rompe un nivel clave. Cuando abre NY el precio frecuentemente <strong style="color:var(--gold)">regresa a retestear ese nivel</strong> antes de continuar. Tú entras en ese retesteo. Alta probabilidad porque sigues el dinero institucional.
+  </div>
+  <div class="wr-badge"><div class="wr-label">WIN RATE DOCUMENTADO</div><div class="wr-val">75–84%</div></div>
   <div class="steps">
-    <div class="step"><div class="sn g">1</div><div class="st">Usar solo cuando no hay ORB ni VWAP claro. Precio sobre <strong class="g">EMA50 y EMA200</strong> = alcista.</div></div>
-    <div class="step"><div class="sn g">2</div><div class="st">Retroceso a la <strong class="g">EMA50</strong>. No debe cerrar al otro lado.</div></div>
-    <div class="step"><div class="sn g">3</div><div class="st">Vela de reversión + <strong class="g">SL = 1.5×ATR</strong>. RR mínimo 1:1.5.</div></div>
+    <div class="step"><div class="sn c">1</div><div class="st"><strong>08:00 Bolivia</strong> — APEX muestra la dirección de Londres y el nivel exacto de retesteo calculado.</div></div>
+    <div class="step"><div class="sn c">2</div><div class="st">Verifica tendencia H1: <strong class="c">EMA50 sobre EMA200 = alcista → solo LARGOS · EMA50 bajo EMA200 = bajista → solo CORTOS.</strong></div></div>
+    <div class="step"><div class="sn c">3</div><div class="st">Crea alerta TradingView en el nivel que indica APEX + <strong class="c">1 pt de buffer</strong> para anticipar la llegada.</div></div>
+    <div class="step"><div class="sn c">4</div><div class="st">Cuando llega la alerta: abre XTB/TradingView. Confirma visualmente que el precio <strong class="c">tocó el nivel y rebotó</strong> con vela M5 sólida.</div></div>
+    <div class="step"><div class="sn c">5</div><div class="st">RSI entre 40-60 (zona neutral). Entrada. <strong class="c">SL: 1.5×ATR (APEX calcula). TP1: 1.5×SL. TP2: máximo/mínimo de Londres.</strong></div></div>
+  </div>
+  <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
+    ⛔ <strong style="color:var(--red)">NO usar</strong> si Londres no definió dirección clara (movimiento menor a 0.5×ATR). ⛔ <strong style="color:var(--red)">NO usar</strong> en días de noticias NFP/CPI/Fed.
+  </div>
+</div>
+
+<div class="card">
+  <div class="ct">4️⃣ EMA + RSI — GOLD & US100 <span class="badge">WIN RATE 52-65%</span></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.6;">
+    Tu estrategia actual simplificada y mejorada. Eliminamos la dependencia del MACD externo. Solo EMA + RSI — 100% autónomo. Funciona mejor con filtro H1 para evitar entradas falsas.
+  </div>
+  <div class="wr-badge"><div class="wr-label">WIN RATE CON FILTRO H1</div><div class="wr-val">60–65%</div></div>
+
+  <div style="background:rgba(245,200,66,0.06);border:1px solid rgba(245,200,66,0.2);border-radius:8px;padding:10px;margin-bottom:10px;">
+    <div style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-bottom:6px;letter-spacing:1px;">PASO PREVIO OBLIGATORIO — FILTRO H1</div>
+    <div style="font-size:11px;color:var(--text);line-height:1.6;">
+      Antes de operar miras el gráfico <strong style="color:var(--gold)">H1</strong>:<br>
+      🟢 EMA50 H1 <strong>sobre</strong> EMA200 H1 → solo LARGOS en M5<br>
+      🔴 EMA50 H1 <strong>bajo</strong> EMA200 H1 → solo CORTOS en M5<br>
+      ➡️ EMAs casi juntas → NO operar ese día
+    </div>
+  </div>
+
+  <div class="steps">
+    <div class="step"><div class="sn g">1</div><div class="st"><strong class="g">Miras H1</strong> — defines si es día de LARGOS o CORTOS según EMA50 vs EMA200.</div></div>
+    <div class="step"><div class="sn g">2</div><div class="st"><strong class="g">En M5</strong> — esperas que el RSI cruce el nivel 50 en la dirección definida por H1:<br>
+    <span style="color:var(--green)">LARGO: RSI sube cruzando 50 desde abajo</span><br>
+    <span style="color:var(--red)">CORTO: RSI baja cruzando 50 desde arriba</span></div></div>
+    <div class="step"><div class="sn g">3</div><div class="st">Confirma que EMA50 M5 está en la misma dirección que EMA50 H1. <strong class="g">Sin confirmación → NO entrar.</strong></div></div>
+    <div class="step"><div class="sn g">4</div><div class="st">Entrada al cierre de la vela donde el RSI cruza el 50. <strong class="g">SL: 1.5×ATR (APEX lo calcula).</strong></div></div>
+    <div class="step"><div class="sn g">5</div><div class="st">TP1: 1.5×SL → cierra 50% → mueve SL a BE. TP2: 2.5×SL → deja correr el 50% restante.</div></div>
+  </div>
+
+  <div style="margin-top:10px;padding:10px;background:rgba(0,227,150,0.06);border:1px solid rgba(0,227,150,0.2);border-radius:8px;font-size:11px;">
+    <strong style="color:var(--green)">¿Qué hago con el MACD?</strong>
+    <div style="color:var(--muted);margin-top:4px;line-height:1.6;">
+      El MACD ya NO es condición obligatoria. Úsalo solo como <strong style="color:var(--text)">confirmación visual</strong>:
+      Si el histograma está verde y subiendo → refuerza tu entrada · Si está rojo → cautela extra.
+      Nunca esperes niveles específicos de otra persona.
+    </div>
+  </div>
+
+  <div style="margin-top:10px;padding:10px;background:rgba(255,69,96,0.06);border:1px solid rgba(255,69,96,0.2);border-radius:8px;font-size:11px;color:var(--muted);">
+    ⛔ <strong style="color:var(--red)">NO entrar</strong> si RSI cruza 50 pero H1 dice dirección contraria. ⛔ <strong style="color:var(--red)">NO entrar</strong> si EMAs H1 están casi juntas — mercado sin dirección.
+  </div>
+</div>
+
+<div class="card">
+  <div class="ct">📋 PROGRESIÓN RECOMENDADA</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div style="background:var(--bg4);border-radius:8px;padding:10px;border-left:3px solid var(--green);">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--green);margin-bottom:6px;">SEMANAS 1-4 — DEMO PEPPERSTONE</div>
+      <div style="font-size:11px;color:var(--text);line-height:1.6;">
+        ORB US100 + ORB GOLD<br>
+        EMA+RSI con filtro H1<br>
+        Registrar TODO en el diario
+      </div>
+    </div>
+    <div style="background:var(--bg4);border-radius:8px;padding:10px;border-left:3px solid var(--gold);">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--gold);margin-bottom:6px;">SEMANAS 5-8 — AÑADIR NY RETEST</div>
+      <div style="font-size:11px;color:var(--text);line-height:1.6;">
+        Observa retesteos sin operar<br>
+        Aprende a reconocer el nivel<br>
+        Empieza a operar en demo
+      </div>
+    </div>
+    <div style="background:var(--bg4);border-radius:8px;padding:10px;border-left:3px solid var(--cyan);">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--cyan);margin-bottom:6px;">SEMANA 9+ — ANALIZAR RESULTADOS</div>
+      <div style="font-size:11px;color:var(--text);line-height:1.6;">
+        ¿Cuál estrategia te da más win rate?<br>
+        ¿Cuál entiendes mejor?<br>
+        Enfócate en esa
+      </div>
+    </div>
+    <div style="background:var(--bg4);border-radius:8px;padding:10px;border-left:3px solid var(--red);">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--red);margin-bottom:6px;">REGLA DE ORO</div>
+      <div style="font-size:11px;color:var(--text);line-height:1.6;">
+        Una estrategia a la vez<br>
+        Mínimo 30 operaciones por estrategia<br>
+        Decide con datos, no con emociones
+      </div>
+    </div>
   </div>
 </div>`;
 
@@ -1411,12 +1559,12 @@ function bgClose(e){if(e.target===document.getElementById('chatModal'))closeChat
 // ══════════════════════════════════════════════
 const SYS=`Eres APEX AI, asistente de scalping para XTB.
 Usuario: Daniel, Santa Cruz Bolivia (UTC-4). Capital: ~$541. Lote mínimo: 0.01.
-VENTANA DE ORO: 09:45–11:00 Bolivia (apertura NY). Esta es la única ventana principal.
-Ventana secundaria: 08:00–09:29 Bolivia (pre-NY, solo VWAP GOLD si RSI extremo).
-Zona marginal: 11:00–12:00 Bolivia (solo si setup perfecto y muy claro).
-NO operar: después de las 12:00 Bolivia, fines de semana, días de noticias macro.
-Fuente de datos: Twelve Data API — precios en TIEMPO REAL, velas M5.
-Estrategias: ORB 15min US100 (win rate 58-62%, ventana 09:45-11:00) y VWAP Reversion GOLD (win rate 60-65%, todo el día NY).
+VENTANA DE ORO: 09:45–11:00 Bolivia (apertura NY).
+Estrategias GOLD: 1) ORB 15min (58-65% win rate) 2) NY Retest (75-84% win rate).
+Estrategia US100: ORB 15min (58-62% win rate).
+Tendencia: EMA50 vs EMA200 en H1 define dirección del día. Solo LARGOS si alcista, solo CORTOS si bajista.
+NY Retest: Londres define dirección → precio retestea nivel roto → confirmar rebote M5 + RSI 40-60 + EMA200.
+ORB: primeras 3 velas M5 → esperar ruptura del rango con cierre de vela + RSI confirma.
 Responde SIEMPRE en español. Directo, máx 150 palabras.
 Cuando des señales: dirección, entrada, SL en pts, TP1, TP2, R:R, lotes (mín 0.01).
 Reglas: máx 1% riesgo/op ($5.41), SL=1.5×ATR, RR≥1:1.5.
