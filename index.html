@@ -564,21 +564,10 @@ let alertsEnabled=true,lastAlertTime=0;
 let setupLog=[];try{setupLog=JSON.parse(localStorage.getItem('apex_log')||'[]');}catch(e){}
 
 async function fetchTD(symbol,label){
-  // Fetch last 100 M5 candles + current price + indicators in parallel
-  const base=`${TD_BASE}`;
-  const params=`symbol=${encodeURIComponent(symbol)}&interval=5min&outputsize=100&apikey=${TD_KEY}`;
-
-  const [tsRes, rsiRes, emaRes1, emaRes2, atrRes] = await Promise.all([
-    fetch(`${base}/time_series?${params}`),
-    fetch(`${base}/rsi?${params}&time_period=14`),
-    fetch(`${base}/ema?${params}&time_period=50`),
-    fetch(`${base}/ema?${params}&time_period=200`),
-    fetch(`${base}/atr?${params}&time_period=14`),
-  ]);
-
-  const [tsJson, rsiJson, ema1Json, ema2Json, atrJson] = await Promise.all([
-    tsRes.json(), rsiRes.json(), emaRes1.json(), emaRes2.json(), atrRes.json()
-  ]);
+  // Una sola petición — calcula indicadores localmente (ahorra créditos API)
+  const params=`symbol=${encodeURIComponent(symbol)}&interval=5min&outputsize=250&apikey=${TD_KEY}`;
+  const tsRes=await fetch(`${TD_BASE}/time_series?${params}`);
+  const tsJson=await tsRes.json();
 
   if(tsJson.status==='error') throw new Error(tsJson.message||'Error Twelve Data');
   if(!tsJson.values||tsJson.values.length<5) throw new Error('Sin velas');
@@ -588,17 +577,20 @@ async function fetchTD(symbol,label){
   const prev=+candles[candles.length-1].close;
   const chg=+((price-prev)/prev*100).toFixed(2);
 
-  // Get indicator values (most recent)
-  const rsi=rsiJson.values?+parseFloat(rsiJson.values[0].rsi).toFixed(1):calcRSI(candles.map(c=>+c.close).reverse());
-  const ema50=ema1Json.values?+parseFloat(ema1Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),50);
-  const ema200=ema2Json.values?+parseFloat(ema2Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),Math.min(200,candles.length));
-  const atr=atrJson.values?+parseFloat(atrJson.values[0].atr).toFixed(2):1;
+  // Calcular indicadores localmente (sin peticiones extra)
+  const closes=candles.map(c=>+c.close).reverse();
+  const highs=candles.map(c=>+c.high).reverse();
+  const lows=candles.map(c=>+c.low).reverse();
+
+  const rsi=+calcRSI(closes,14).toFixed(1);
+  const ema50=+calcEMA(closes,50).toFixed(2);
+  const ema200=+calcEMA(closes,Math.min(200,closes.length)).toFixed(2);
+  const atr=+calcATR(highs,lows,closes,14).toFixed(2);
 
   const sl=+(atr*1.5).toFixed(2);
   const bias=getBias(price,ema50,ema200,rsi);
 
   // ORB: first 3 M5 candles of NY session (09:30-09:45 Bolivia = 13:30-13:45 UTC)
-  // Find candles from today around 13:30 UTC
   const todayUTC=new Date().toISOString().slice(0,10);
   const nyCandles=candles.filter(c=>{
     const dt=c.datetime;
@@ -612,9 +604,7 @@ async function fetchTD(symbol,label){
     label,price,prev,chg,rsi,ema50,ema200,atr,sl,
     tp1:+(sl*1.5).toFixed(2),tp2:+(sl*2.5).toFixed(2),
     bias,orbHigh,orbLow,
-    closes:candles.map(c=>+c.close).reverse(),
-    highs:candles.map(c=>+c.high).reverse(),
-    lows:candles.map(c=>+c.low).reverse(),
+    closes,highs,lows,
     lastCandle:candles[0].datetime
   };
 }
