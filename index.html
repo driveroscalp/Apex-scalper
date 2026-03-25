@@ -742,31 +742,14 @@ function checkAndAlert(verdictType,score){
   if(verdictType==='operate'&&score>=5&&!alertPlayed){
     playAlert('operate');
     alertPlayed=true;
-    showBanner('✅ SETUP DETECTADO — Score '+score+'/6 — Verifica en TradingView','var(--green)');
+    flashScreen('rgba(0,200,120,0.15)');
   }else if(verdictType==='watch'&&score>=4&&lastVerdictType!=='operate'){
-    showBanner('👁 VIGILAR — Score '+score+'/6 — Setup formándose','var(--gold)');
+    flashScreen('rgba(245,200,66,0.1)');
   }
   if(verdictType!=='operate')alertPlayed=false;
   lastVerdictType=verdictType;
 }
 
-function showBanner(msg,color){
-  let b=document.getElementById('apex-banner');
-  if(!b){
-    b=document.createElement('div');
-    b.id='apex-banner';
-    b.style.cssText=`position:fixed;top:60px;left:50%;transform:translateX(-50%);
-      z-index:9999;padding:10px 20px;border-radius:10px;font-family:var(--font-head);
-      font-size:13px;letter-spacing:1px;text-align:center;cursor:pointer;
-      max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.5);`;
-    b.onclick=()=>b.remove();
-    document.body.appendChild(b);
-  }
-  b.style.background=color==='var(--green)'?'rgba(0,200,120,0.95)':'rgba(245,200,66,0.95)';
-  b.style.color='#080B10';
-  b.textContent=msg;
-  setTimeout(()=>{if(b.parentNode)b.remove();},8000);
-}
 
 // ══════════════════════════════════════════════
 // MOTOR DE CONFLUENCIA — SCORE 0-6
@@ -1338,21 +1321,8 @@ function computeVerdict(){
   if(bh>=12&&bh<21)return{type:'no',icon:'🚫',label:'NO OPERAR',strategy:'FUERA DE TU VENTANA',
     detail:`${bh<17?'NY activa pero fuera de tu ventana (09:45–11:00).':'NY cerrando. Liquidez muy baja.'}`,
     action:bh>=16?'Cierra posiciones antes de las 17:00 Bolivia.':'Revisa tu operativa de hoy. Prepara análisis a las 21:00.',
-    levels:null,color:'var(--red)'};
+    levels:null,color:'var(--red)',score:null};
 
-  // 21:00–23:00 PREPARACIÓN
-  const asiaRangePrep=gd?getAsiaRange(gd):null;
-  return{type:'prep',icon:'📋',label:'PREPARACIÓN',strategy:'ANÁLISIS PARA MAÑANA',
-    detail:gd?`GOLD: ${gd.price} | Tendencia: ${goldTrend.emoji} ${goldTrend.trend} | EMA50: ${gd.ema50.toFixed(0)} vs EMA200: ${gd.ema200.toFixed(0)}${asiaRangePrep&&asiaRangePrep.valid?` | Rango Asia: MAX ${asiaRangePrep.high.toFixed(1)} / MIN ${asiaRangePrep.low.toFixed(1)}`:''}`:
-    'Configura alertas en XTB para mañana.',
-    action:gd?`Marca en TradingView el MAX y MIN del rango Asia (20:00–00:00 Bolivia). Mañana verás si Londres rompe ese rango — ese nivel será tu retesteo NY.${asiaRangePrep&&asiaRangePrep.valid?` Rango actual: MAX ${asiaRangePrep.high.toFixed(1)} / MIN ${asiaRangePrep.low.toFixed(1)}.`:''}`:'Configura alertas en XTB.',
-    levels:gd?[
-      {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
-      {l:'ASIA MAX',v:asiaRangePrep?.high?.toFixed(1)||'—',c:'var(--cyan)'},
-      {l:'ASIA MIN',v:asiaRangePrep?.low?.toFixed(1)||'—',c:'var(--cyan)'},
-      {l:'EMA50',v:gd.ema50.toFixed(1),c:'var(--gold)'}
-    ]:null,color:'var(--muted)'};
-}
 
 
 function updateVerdict(){
