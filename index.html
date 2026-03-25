@@ -582,114 +582,78 @@ function getBias(price,ema50,ema200,rsi){
 }
 
 // ══════════════════════════════════════════════
-// TWELVE DATA — TIEMPO REAL
+// TWELVE DATA — SOLO GOLD (1 llamada)
 // ══════════════════════════════════════════════
 const TD_KEY='7f965aa37ef348059ece3ad2ebb3a332';
 const TD_BASE='https://api.twelvedata.com';
-const TD_SYMBOLS={GOLD:'XAU/USD',US100:'NDX'};
 let marketData={GOLD:null,US100:null};
 let alertsEnabled=true,lastAlertTime=0;
 let setupLog=[];try{setupLog=JSON.parse(localStorage.getItem('apex_log')||'[]');}catch(e){}
 
 async function fetchTD(symbol,label){
-  // Fetch last 100 M5 candles + current price + indicators in parallel
-  const base=`${TD_BASE}`;
-  const params=`symbol=${encodeURIComponent(symbol)}&interval=5min&outputsize=100&apikey=${TD_KEY}`;
-
-  const [tsRes, rsiRes, emaRes1, emaRes2, atrRes] = await Promise.all([
-    fetch(`${base}/time_series?${params}`),
-    fetch(`${base}/rsi?${params}&time_period=14`),
-    fetch(`${base}/ema?${params}&time_period=50`),
-    fetch(`${base}/ema?${params}&time_period=200`),
-    fetch(`${base}/atr?${params}&time_period=14`),
-  ]);
-
-  const [tsJson, rsiJson, ema1Json, ema2Json, atrJson] = await Promise.all([
-    tsRes.json(), rsiRes.json(), emaRes1.json(), emaRes2.json(), atrRes.json()
-  ]);
-
-  if(tsJson.status==='error') throw new Error(tsJson.message||'Error Twelve Data');
-  if(!tsJson.values||tsJson.values.length<5) throw new Error('Sin velas');
-
-  const candles=tsJson.values; // most recent first
+  const params=`symbol=${encodeURIComponent(symbol)}&interval=5min&outputsize=200&apikey=${TD_KEY}`;
+  const res=await fetch(`${TD_BASE}/time_series?${params}`);
+  if(!res.ok)throw new Error('HTTP '+res.status);
+  const json=await res.json();
+  if(json.status==='error')throw new Error(json.message||'Error API');
+  if(!json.values||json.values.length<20)throw new Error('Sin datos');
+  const candles=json.values;
+  const closes=candles.map(c=>+c.close).reverse();
+  const highs=candles.map(c=>+c.high).reverse();
+  const lows=candles.map(c=>+c.low).reverse();
   const price=+candles[0].close;
   const prev=+candles[candles.length-1].close;
   const chg=+((price-prev)/prev*100).toFixed(2);
-
-  // Get indicator values (most recent)
-  const rsi=rsiJson.values?+parseFloat(rsiJson.values[0].rsi).toFixed(1):calcRSI(candles.map(c=>+c.close).reverse());
-  const ema50=ema1Json.values?+parseFloat(ema1Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),50);
-  const ema200=ema2Json.values?+parseFloat(ema2Json.values[0].ema).toFixed(2):calcEMA(candles.map(c=>+c.close).reverse(),Math.min(200,candles.length));
-  const atr=atrJson.values?+parseFloat(atrJson.values[0].atr).toFixed(2):1;
-
+  const rsi=+calcRSI(closes).toFixed(1);
+  const ema50=+calcEMA(closes,50).toFixed(2);
+  const ema200=+calcEMA(closes,Math.min(200,closes.length-1)).toFixed(2);
+  const atr=+calcATR(highs,lows,closes).toFixed(2);
   const sl=+(atr*1.5).toFixed(2);
   const bias=getBias(price,ema50,ema200,rsi);
-
-  // ORB: first 3 M5 candles of NY session (09:30-09:45 Bolivia = 13:30-13:45 UTC)
-  // Find candles from today around 13:30 UTC
   const todayUTC=new Date().toISOString().slice(0,10);
   const nyCandles=candles.filter(c=>{
-    const dt=c.datetime;
-    return dt.startsWith(todayUTC)&&(dt.includes('13:30')||dt.includes('13:35')||dt.includes('13:40'));
+    const dt=c.datetime||'';
+    return dt.startsWith(todayUTC)&&
+      (dt.includes('13:30')||dt.includes('13:35')||dt.includes('13:40'));
   });
   const orbCandles=nyCandles.length>0?nyCandles:candles.slice(0,3);
-  const orbHigh=Math.max(...orbCandles.map(c=>+c.high));
-  const orbLow=Math.min(...orbCandles.map(c=>+c.low));
-
-  return{
-    label,price,prev,chg,rsi,ema50,ema200,atr,sl,
+  const orbHigh=+Math.max(...orbCandles.map(c=>+c.high)).toFixed(2);
+  const orbLow=+Math.min(...orbCandles.map(c=>+c.low)).toFixed(2);
+  return{label,price,prev,chg,rsi,ema50,ema200,atr,sl,
     tp1:+(sl*1.5).toFixed(2),tp2:+(sl*2.5).toFixed(2),
-    bias,orbHigh,orbLow,
-    closes:candles.map(c=>+c.close).reverse(),
-    highs:candles.map(c=>+c.high).reverse(),
-    lows:candles.map(c=>+c.low).reverse(),
-    lastCandle:candles[0].datetime
-  };
+    bias,orbHigh,orbLow,closes,highs,lows,
+    lastCandle:candles[0].datetime};
 }
 
 async function fetchAllData(){
   const statusEl=document.getElementById('data-status');
-  if(statusEl)statusEl.textContent='Actualizando...';
-  let ok=0;
-
-  for(const [key,sym] of Object.entries(TD_SYMBOLS)){
-    try{
-      const d=await fetchTD(sym,key);
-      marketData[key]=d;
-      updateSignalUI(d,key);
-      ok++;
-    }catch(e){
-      console.warn(key,e.message);
-      // Si no hay datos intenta usar los últimos datos guardados
-      const saved=loadLastMarketData(key);
-      if(saved){
-        marketData[key]=saved;
-        updateSignalUI(saved,key);
-        if(statusEl)statusEl.textContent=`⚠️ Usando últimos datos guardados (${saved.lastCandle||'—'})`;
-      }else{
-        if(statusEl)statusEl.textContent=`⚠️ Mercado cerrado · Sin datos disponibles`;
-      }
+  if(statusEl)statusEl.textContent='Cargando GOLD...';
+  try{
+    const d=await fetchTD('XAU/USD','GOLD');
+    marketData.GOLD=d;
+    updateSignalUI(d,'GOLD');
+    saveLastMarketData();
+    if(statusEl)statusEl.textContent='✅ Twelve Data · GOLD · Tiempo real · M5';
+  }catch(e){
+    console.warn('TD GOLD:',e.message);
+    // Intentar con datos guardados
+    const saved=loadLastMarketData('GOLD');
+    if(saved){
+      marketData.GOLD=saved;
+      updateSignalUI(saved,'GOLD');
+      if(statusEl)statusEl.textContent='📦 GOLD: datos del último cierre · '+e.message;
+    }else{
+      if(statusEl)statusEl.textContent='⚠️ '+e.message;
     }
   }
-
   const t=new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
   const lastUpEl=document.getElementById('last-update');
   if(lastUpEl)lastUpEl.textContent=t;
-
-  if(ok===2){
-    if(statusEl)statusEl.textContent='✅ Twelve Data · Tiempo real · M5';
-    // Guardar datos para uso offline
-    saveLastMarketData();
-  }else if(ok===1){
-    if(statusEl)statusEl.textContent='⚠️ Twelve Data · Un instrumento con error';
-  }else if(ok===0){
-    if(statusEl)statusEl.textContent='🌙 Mercado cerrado · Datos del último cierre';
-  }
-
   updateVerdict();
   updateXTBLevels();
   evaluateAndAlert();
 }
+
 
 // ── PERSISTENCIA DE ÚLTIMOS DATOS DE MERCADO ──
 function saveLastMarketData(){
