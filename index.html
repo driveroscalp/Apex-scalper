@@ -650,9 +650,6 @@ async function fetchAllData(){
   updateXTBLevels();
   evaluateAndAlert();
 }
-fetchAllData();
-// Refresh every 5 min — synchronized with M5 candles
-setInterval(fetchAllData,5*60*1000);
 
 function updateSignalUI(d,key){
   const k=key.toLowerCase();
@@ -1350,7 +1347,6 @@ function updateVerdict(){
       <div class="verdict-action" style="background:${actionColor};color:${v.color};">${v.action}</div>`;
   });
 }
-setInterval(updateVerdict,60000);
 
 // ══════════════════════════════════════════════
 // SESSIONS
@@ -1376,7 +1372,6 @@ function updateSessions(){
     }).join('');
   });
 }
-updateSessions();setInterval(updateSessions,60000);
 
 // ══════════════════════════════════════════════
 // ALERT ENGINE
@@ -1709,13 +1704,24 @@ const indHTML=`
 Ve a la pestaña <strong style="color:var(--gold)">ALERTAS XTB</strong> para ver cómo añadirlo paso a paso.</div>
 </div></div>`;
 
-// Inject content
-['tc-e','mob-est'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=stratHTML;});
-['tc-r','mob-rie'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=riskHTML;});
-['tc-xtb','mob-xtb'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=xtbHTML;});
-document.getElementById('tc-i').innerHTML=indHTML;
-renderSesiones();
-// Diario injected by renderDiario() called above
+// Inject content — INMEDIATAMENTE, independiente de los datos
+document.addEventListener('DOMContentLoaded', function(){
+  ['tc-e','mob-est'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=stratHTML;});
+  ['tc-r','mob-rie'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=riskHTML;});
+  ['tc-xtb','mob-xtb'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML=xtbHTML;});
+  const ti=document.getElementById('tc-i');if(ti)ti.innerHTML=indHTML;
+  renderSesiones();
+  renderDiario();
+  buildCL('cl-d');buildCL('cl-m');
+  setTimeout(calcR,200);
+  updateSessions();
+  updateVerdict();
+  setInterval(updateVerdict,60000);
+  setInterval(updateSessions,60000);
+  // Iniciar carga de datos de mercado
+  fetchAllData();
+  setInterval(fetchAllData,5*60*1000);
+});
 
 // Checklists
 function buildCL(id){
@@ -1726,7 +1732,6 @@ function buildCL(id){
     d.onclick=()=>d.classList.toggle('checked');el.appendChild(d);
   });
 }
-buildCL('cl-d');buildCL('cl-m');
 
 // Risk calc
 const instruments={
@@ -1748,7 +1753,6 @@ function calcR(){
   s('t1c','$'+(rr*1.5).toFixed(2));s('t2c','$'+(rr*2.5).toFixed(2));
   const n=document.getElementById('calc-note');if(n)n.textContent=inst.note;
 }
-setTimeout(calcR,200);
 
 // XTB Levels
 function updateXTBLevels(){
