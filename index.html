@@ -679,12 +679,219 @@ function updateSignalUI(d,key){
 }
 
 // ══════════════════════════════════════════════
-// VERDICT ENGINE — ACTUALIZADO
-// Estrategias:
-//   US100 → ORB 15 min (09:45–11:00 Bolivia)
-//   GOLD  → ORB 15 min (09:45–11:00 Bolivia)
-//   GOLD  → NY Retest  (09:30–11:00 Bolivia)
-// Tendencia: EMA50 vs EMA200
+// PERSISTENCIA DE DATOS DEL DÍA
+// Guarda niveles clave una vez calculados
+// y los mantiene hasta el día siguiente
+// ══════════════════════════════════════════════
+const PERSIST_KEY='apex_daily_levels';
+
+function getTodayKey(){
+  const b=new Date(new Date().getTime()-4*60*60*1000);
+  return b.toISOString().slice(0,10);
+}
+
+function loadPersistedLevels(){
+  try{
+    const raw=localStorage.getItem(PERSIST_KEY);
+    if(!raw)return null;
+    const data=JSON.parse(raw);
+    if(data.date!==getTodayKey())return null; // nuevo día → reset
+    return data;
+  }catch(e){return null;}
+}
+
+function saveLevels(levels){
+  try{
+    localStorage.setItem(PERSIST_KEY,JSON.stringify({
+      date:getTodayKey(),...levels
+    }));
+  }catch(e){}
+}
+
+let persistedLevels=loadPersistedLevels()||{};
+
+// ══════════════════════════════════════════════
+// ALERTA SONORA Y VISUAL
+// ══════════════════════════════════════════════
+let lastVerdictType='';
+let alertPlayed=false;
+
+function playAlert(type){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const freqs=type==='operate'?[523,659,784]:[440,440];
+    freqs.forEach((f,i)=>{
+      const o=ctx.createOscillator();
+      const g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.frequency.value=f;
+      o.type='sine';
+      g.gain.setValueAtTime(0.3,ctx.currentTime+i*0.15);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+i*0.15+0.3);
+      o.start(ctx.currentTime+i*0.15);
+      o.stop(ctx.currentTime+i*0.15+0.3);
+    });
+    if(navigator.vibrate)navigator.vibrate(type==='operate'?[200,100,200]:[100]);
+  }catch(e){}
+}
+
+function checkAndAlert(verdictType,score){
+  const bm=getBoliviaMinutes();
+  const inWindow=bm>=9*60+45&&bm<11*60;
+  if(!inWindow){alertPlayed=false;return;}
+  if(verdictType==='operate'&&score>=5&&!alertPlayed){
+    playAlert('operate');
+    alertPlayed=true;
+    showBanner('✅ SETUP DETECTADO — Score '+score+'/6 — Verifica en TradingView','var(--green)');
+  }else if(verdictType==='watch'&&score>=4&&lastVerdictType!=='operate'){
+    showBanner('👁 VIGILAR — Score '+score+'/6 — Setup formándose','var(--gold)');
+  }
+  if(verdictType!=='operate')alertPlayed=false;
+  lastVerdictType=verdictType;
+}
+
+function showBanner(msg,color){
+  let b=document.getElementById('apex-banner');
+  if(!b){
+    b=document.createElement('div');
+    b.id='apex-banner';
+    b.style.cssText=`position:fixed;top:60px;left:50%;transform:translateX(-50%);
+      z-index:9999;padding:10px 20px;border-radius:10px;font-family:var(--font-head);
+      font-size:13px;letter-spacing:1px;text-align:center;cursor:pointer;
+      max-width:90vw;box-shadow:0 4px 20px rgba(0,0,0,0.5);`;
+    b.onclick=()=>b.remove();
+    document.body.appendChild(b);
+  }
+  b.style.background=color==='var(--green)'?'rgba(0,200,120,0.95)':'rgba(245,200,66,0.95)';
+  b.style.color='#080B10';
+  b.textContent=msg;
+  setTimeout(()=>{if(b.parentNode)b.remove();},8000);
+}
+
+// ══════════════════════════════════════════════
+// MOTOR DE CONFLUENCIA — SCORE 0-6
+// ══════════════════════════════════════════════
+function calcConfluenceScore(gd,ud,bm,goldTrend,londonBias,retestInfo,goldOrb){
+  const conditions=[];
+
+  // C1 — Horario dentro de ventana de oro
+  const inWindow=bm>=9*60+45&&bm<11*60;
+  conditions.push({
+    name:'Ventana de oro activa',
+    ok:inWindow,
+    detail:inWindow?'09:45–11:00 Bolivia ✅':'Fuera de ventana ❌',
+    weight:1
+  });
+
+  // C2 — Precio sobre/bajo EMA200 (filtro EMA200)
+  let ema200ok=false;
+  let ema200detail='Sin datos';
+  if(gd){
+    const overEMA200=gd.price>gd.ema200;
+    const underEMA200=gd.price<gd.ema200;
+    const nearEMA200=Math.abs(gd.price-gd.ema200)<gd.atr*0.5;
+    if(nearEMA200){
+      ema200ok=false;
+      ema200detail=`Precio muy cerca EMA200 (${gd.ema200.toFixed(1)}) — zona conflicto ❌`;
+    } else if(overEMA200&&goldTrend.trend==='ALCISTA'){
+      ema200ok=true;
+      ema200detail=`Precio sobre EMA200 + tendencia alcista ✅`;
+    } else if(underEMA200&&goldTrend.trend==='BAJISTA'){
+      ema200ok=true;
+      ema200detail=`Precio bajo EMA200 + tendencia bajista ✅`;
+    } else {
+      ema200ok=false;
+      ema200detail=`Precio vs EMA200 contradice tendencia ❌`;
+    }
+  }
+  conditions.push({name:'Filtro EMA200',ok:ema200ok,detail:ema200detail,weight:1});
+
+  // C3 — Tendencia H1 definida (EMA50 vs EMA200)
+  const trendOk=goldTrend.trend!=='NEUTRAL';
+  conditions.push({
+    name:'Tendencia H1 definida',
+    ok:trendOk,
+    detail:trendOk?`EMA50 ${goldTrend.trend==='ALCISTA'?'sobre':'bajo'} EMA200 → ${goldTrend.trend} ✅`:'EMAs convergentes — sin dirección ❌',
+    weight:1
+  });
+
+  // C4 — RSI en zona correcta
+  let rsiOk=false;
+  let rsiDetail='Sin datos';
+  if(gd){
+    const rsiForLong=gd.rsi>45&&gd.rsi<68;
+    const rsiForShort=gd.rsi>32&&gd.rsi<55;
+    if(goldTrend.trend==='ALCISTA'&&rsiForLong){
+      rsiOk=true;rsiDetail=`RSI ${gd.rsi} — zona válida para LARGO ✅`;
+    } else if(goldTrend.trend==='BAJISTA'&&rsiForShort){
+      rsiOk=true;rsiDetail=`RSI ${gd.rsi} — zona válida para CORTO ✅`;
+    } else {
+      rsiOk=false;rsiDetail=`RSI ${gd.rsi||'—'} — fuera de zona óptima ❌`;
+    }
+  }
+  conditions.push({name:'RSI en zona correcta',ok:rsiOk,detail:rsiDetail,weight:1});
+
+  // C5 — Londres rompió rango Asia
+  let londonOk=false;
+  let londonDetail='Londres sin dirección clara';
+  if(londonBias&&londonBias.dir!=='NEUTRAL'){
+    if(londonBias.brokeAsiaHigh||londonBias.brokeAsiaLow){
+      londonOk=true;
+      londonDetail=`Londres rompió ${londonBias.brokeAsiaHigh?'MAX':'MIN'} de Asia → ${londonBias.dir} ✅`;
+    } else {
+      londonOk=false;
+      londonDetail=`Londres movió ${londonBias.pts>0?'+':''}${londonBias.pts} pts pero no rompió Asia ❌`;
+    }
+  }
+  conditions.push({name:'Londres rompió rango Asia',ok:londonOk,detail:londonDetail,weight:1});
+
+  // C6 — Precio cerca del nivel de retesteo o ORB activo
+  let setupOk=false;
+  let setupDetail='Sin setup activo';
+  if(retestInfo&&retestInfo.nearLevel&&londonBias.dir!=='NEUTRAL'){
+    setupOk=true;
+    setupDetail=`Precio cerca del nivel de retesteo ${retestInfo.level.toFixed(1)} ✅`;
+  } else if(goldOrb&&goldOrb.valid&&gd){
+    const nearOrb=Math.abs(gd.price-goldOrb.high)<gd.atr||Math.abs(gd.price-goldOrb.low)<gd.atr;
+    if(nearOrb){setupOk=true;setupDetail=`Precio cerca del rango ORB GOLD ✅`;}
+  } else if(ud){
+    const orbBroken=ud.price>ud.orbHigh||ud.price<ud.orbLow;
+    if(orbBroken){setupOk=true;setupDetail=`ORB US100 roto — setup activo ✅`;}
+  }
+  conditions.push({name:'Setup activo (Retest/ORB)',ok:setupOk,detail:setupDetail,weight:1});
+
+  const score=conditions.filter(c=>c.ok).length;
+  return{score,conditions,total:6};
+}
+
+function getScoreHTML(score,conditions,total){
+  const pct=Math.round(score/total*100);
+  const scoreColor=score>=5?'var(--green)':score>=3?'var(--gold)':'var(--red)';
+  const scoreLabel=score>=5?'ALTA CONFIANZA':score>=3?'CONFIANZA MEDIA':'BAJA CONFIANZA';
+  return`
+  <div style="margin:8px 0;padding:10px;background:var(--bg2);border-radius:10px;border:1px solid ${scoreColor}30;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-family:var(--font-mono);font-size:9px;color:var(--muted);">SCORE DE CONFLUENCIA</div>
+      <div style="font-family:var(--font-head);font-size:20px;color:${scoreColor}">${score}/${total} <span style="font-size:11px;">${scoreLabel}</span></div>
+    </div>
+    <div style="background:var(--bg4);border-radius:6px;height:6px;margin-bottom:8px;overflow:hidden;">
+      <div style="height:100%;width:${pct}%;background:${scoreColor};border-radius:6px;transition:width 0.5s;"></div>
+    </div>
+    <div style="display:grid;gap:3px;">
+      ${conditions.map(c=>`
+        <div style="display:flex;align-items:flex-start;gap:6px;font-size:10px;">
+          <span style="color:${c.ok?'var(--green)':'var(--red)'};font-size:12px;margin-top:-1px;">${c.ok?'✅':'❌'}</span>
+          <div>
+            <span style="color:${c.ok?'var(--text)':'var(--muted)'};">${c.name}</span>
+            <span style="color:var(--muted);font-size:9px;display:block;">${c.detail}</span>
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════
+// VERDICT ENGINE — CON CONFLUENCIA DINÁMICA
 // ══════════════════════════════════════════════
 
 function getTrend(d){
@@ -804,17 +1011,216 @@ function computeVerdict(){
 
   if(wk)return{type:'prep',icon:'📅',label:'FIN DE SEMANA',strategy:'MERCADO CERRADO',
     detail:'El mercado cierra el viernes 17:00 Bolivia y reabre el domingo 18:00 Bolivia.',
-    action:'Revisa tu diario de trading y prepara los niveles del lunes.',levels:null,color:'var(--muted)'};
+    action:'Revisa tu diario de trading y prepara los niveles del lunes.',
+    levels:null,color:'var(--muted)',score:null};
 
   if(bh<8||(bh>=23)){return{type:'prep',icon:'🌙',label:'ZONA TRANQUILA',strategy:'PREPARACIÓN',
     detail:'Sin sesiones activas. Horario de preparación.',
     action:'Revisa niveles de GOLD y US100 para mañana. Configura alertas en XTB.',
-    levels:null,color:'var(--muted)'};}
+    levels:null,color:'var(--muted)',score:null};}
 
   const goldTrend=getTrend(gd);
-  const londonBias=gd?getLondonBias(gd):{dir:'NEUTRAL',pts:0};
+  const londonBias=gd?getLondonBias(gd):{dir:'NEUTRAL',pts:0,brokeAsiaHigh:false,brokeAsiaLow:false};
   const retestInfo=gd?getRetestLevel(gd):null;
   const goldOrb=gd?getGoldORB(gd):null;
+
+  // ── PERSISTENCIA: guardar niveles clave cuando se calculan ──
+  if(bm>=9*60+45&&!persistedLevels.orbFixed&&ud&&goldOrb){
+    persistedLevels.orbUS100High=ud.orbHigh;
+    persistedLevels.orbUS100Low=ud.orbLow;
+    persistedLevels.orbGoldHigh=goldOrb.high;
+    persistedLevels.orbGoldLow=goldOrb.low;
+    persistedLevels.orbFixed=true;
+    saveLevels(persistedLevels);
+  }
+  if(retestInfo&&!persistedLevels.retestFixed&&bm>=8*60){
+    persistedLevels.retestLevel=retestInfo.level;
+    persistedLevels.retestAlert=retestInfo.alertLevel;
+    persistedLevels.retestDir=londonBias.dir;
+    persistedLevels.retestFixed=true;
+    saveLevels(persistedLevels);
+  }
+
+  // Usar niveles persistidos si existen
+  const fixedORB_US={
+    high:persistedLevels.orbUS100High||ud?.orbHigh,
+    low:persistedLevels.orbUS100Low||ud?.orbLow
+  };
+  const fixedRetestLevel=persistedLevels.retestLevel||retestInfo?.level;
+  const fixedRetestAlert=persistedLevels.retestAlert||retestInfo?.alertLevel;
+
+  // ── SCORE DE CONFLUENCIA ──
+  const confluence=calcConfluenceScore(gd,ud,bm,goldTrend,londonBias,retestInfo,goldOrb);
+  const{score,conditions}=confluence;
+
+  // 08:00–09:29 PRE-NY
+  if(bh>=8&&bm<9*60+30){
+    const minsToNY=9*60+30-bm;
+    if(!gd)return{type:'wait',icon:'⏳',label:'CARGANDO',strategy:'ESPERANDO DATOS',
+      detail:'Obteniendo datos...',action:'',levels:null,color:'var(--gold)',score:null};
+    const asiaLine=retestInfo?.asiaRange?.valid
+      ?`Rango Asia: MAX ${retestInfo.asiaRange.high.toFixed(1)} / MIN ${retestInfo.asiaRange.low.toFixed(1)}`
+      :'Rango Asia: Calculando...';
+    const londonLine=londonBias.dir!=='NEUTRAL'
+      ?`Londres: ${londonBias.dir==='ALCISTA'?'📈':'📉'} ${londonBias.dir} (${londonBias.pts>0?'+':''}${londonBias.pts} pts)`
+      :'Londres: Definiendo dirección...';
+    const retestLine=fixedRetestLevel
+      ?`Nivel retesteo: ${fixedRetestLevel.toFixed(1)} | Alerta TV: ${fixedRetestAlert?.toFixed(1)||'—'} ${londonBias.dir==='ALCISTA'?'↓ DESC':'↑ ASC'}`
+      :'Nivel retesteo: Calculando...';
+    const ema200Line=gd?`EMA200: ${gd.ema200.toFixed(1)} | Precio ${gd.price>gd.ema200?'sobre':'bajo'} EMA200`:'';
+    return{type:'wait',icon:'⏳',label:'PRE-NY',strategy:`ABRE EN ${fmtMin(minsToNY)}`,
+      detail:`${goldTrend.emoji} ${goldTrend.trend} | EMA200: ${gd?.ema200?.toFixed(1)||'—'} | ${asiaLine} | ${londonLine} | ${retestLine}`,
+      action:fixedRetestLevel&&londonBias.dir!=='NEUTRAL'
+        ?`Crea alerta TradingView GOLD en ${fixedRetestAlert?.toFixed(1)||'—'} (${londonBias.dir==='ALCISTA'?'↓ descendente':'↑ ascendente'}). Solo ${londonBias.dir==='ALCISTA'?'LARGOS':'CORTOS'} hoy.`
+        :'Espera que Londres defina dirección. Prepara gráficos US100 y GOLD M5 en XTB.',
+      levels:[
+        {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+        {l:'ASIA MAX',v:retestInfo?.asiaRange?.high?.toFixed(1)||'—',c:'var(--cyan)'},
+        {l:'ASIA MIN',v:retestInfo?.asiaRange?.low?.toFixed(1)||'—',c:'var(--cyan)'},
+        {l:'RETEST',v:fixedRetestLevel?.toFixed(1)||'—',c:'var(--gold)'},
+        {l:'ALERTA TV',v:fixedRetestAlert?.toFixed(1)||'—',c:'var(--gold)'},
+        {l:'NY ABRE',v:fmtMin(minsToNY),c:'var(--muted)'}
+      ],color:'var(--gold)',score:null};}
+
+  // 09:30–09:44 FORMANDO RANGO
+  if(bm>=9*60+30&&bm<9*60+45){
+    return{type:'watch',icon:'👁',label:'FORMANDO RANGO',strategy:'ORB 15 MIN — US100 Y GOLD',
+      detail:`Rango ORB formándose. A las 09:45 marca MAX y MIN de ambos. Tendencia: ${goldTrend.emoji} ${goldTrend.trend} | EMA200 GOLD: ${gd?.ema200?.toFixed(1)||'—'}`,
+      action:'Observa las 3 primeras velas M5. A las 09:45 crea 4 alertas en TradingView.',
+      levels:[
+        {l:'US100 MAX',v:ud?ud.orbHigh.toFixed(0):'—',c:'var(--red)'},
+        {l:'US100 MIN',v:ud?ud.orbLow.toFixed(0):'—',c:'var(--green)'},
+        {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+        {l:'EMA200',v:gd?.ema200?.toFixed(1)||'—',c:'var(--cyan)'}
+      ],color:'var(--cyan)',score:null};}
+
+  // ── 09:45–11:00 VENTANA DE ORO ──
+  if(bm>=9*60+45&&bm<11*60){
+    if(!ud&&!gd)return{type:'wait',icon:'⏳',label:'CARGANDO',strategy:'...',
+      detail:'Cargando datos...',action:'',levels:null,color:'var(--gold)',score:null};
+    const minsLeft=11*60-bm;
+
+    // Usar ORB persistido si existe
+    const orbUS={high:fixedORB_US.high||ud?.orbHigh,low:fixedORB_US.low||ud?.orbLow};
+
+    // PRIORIDAD 1: ORB US100
+    const orbLongUS=ud&&ud.price>orbUS.high&&ud.rsi>50;
+    const orbShortUS=ud&&ud.price<orbUS.low&&ud.rsi<50;
+    if(orbLongUS){
+      checkAndAlert('operate',score);
+      return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — US100 ⭐',
+        detail:`US100 rompió MAX ORB (${orbUS.high?.toFixed(0)||'—'}) con RSI ${ud.rsi}. Score: ${score}/6.`,
+        action:`LARGO US100. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | Lotes: 0.01`,
+        levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+        color:'var(--green)',score:{score,conditions}};}
+    if(orbShortUS){
+      checkAndAlert('operate',score);
+      return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — US100 ⭐',
+        detail:`US100 rompió MIN ORB (${orbUS.low?.toFixed(0)||'—'}) con RSI ${ud.rsi}. Score: ${score}/6.`,
+        action:`CORTO US100. SL: ${ud.sl.toFixed(0)} | TP1: ${ud.tp1.toFixed(0)} | TP2: ${ud.tp2.toFixed(0)} | Lotes: 0.01`,
+        levels:[{l:'SL',v:ud.sl.toFixed(0),c:'var(--red)'},{l:'TP1',v:ud.tp1.toFixed(0),c:'var(--green)'},{l:'TP2',v:ud.tp2.toFixed(0),c:'var(--green)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+        color:'var(--green)',score:{score,conditions}};}
+
+    // PRIORIDAD 2: ORB GOLD (con filtro EMA200)
+    if(gd&&goldOrb&&goldOrb.valid){
+      const ema200ok=gd.price>gd.ema200&&goldTrend.trend==='ALCISTA'||gd.price<gd.ema200&&goldTrend.trend==='BAJISTA';
+      const nearEMA200=Math.abs(gd.price-gd.ema200)<gd.atr*0.5;
+      const orbLongG=gd.price>goldOrb.high&&gd.rsi>50&&goldTrend.trend!=='BAJISTA'&&ema200ok&&!nearEMA200;
+      const orbShortG=gd.price<goldOrb.low&&gd.rsi<50&&goldTrend.trend!=='ALCISTA'&&ema200ok&&!nearEMA200;
+      if(orbLongG){
+        checkAndAlert('operate',score);
+        return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB LARGO — GOLD 🥇',
+          detail:`GOLD rompió MAX ORB (${goldOrb.high.toFixed(1)}). Precio sobre EMA200 (${gd.ema200.toFixed(1)}) ✅. Score: ${score}/6.`,
+          action:`LARGO GOLD. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | TP2: ${gd.tp2.toFixed(2)} | Lotes: 0.01`,
+          levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+      if(orbShortG){
+        checkAndAlert('operate',score);
+        return{type:'operate',icon:'✅',label:'OPERAR',strategy:'ORB CORTO — GOLD 🥇',
+          detail:`GOLD rompió MIN ORB (${goldOrb.low.toFixed(1)}). Precio bajo EMA200 (${gd.ema200.toFixed(1)}) ✅. Score: ${score}/6.`,
+          action:`CORTO GOLD. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | TP2: ${gd.tp2.toFixed(2)} | Lotes: 0.01`,
+          levels:[{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'TP1',v:gd.tp1.toFixed(2),c:'var(--green)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+    }
+
+    // PRIORIDAD 3: NY RETEST GOLD (con filtro EMA200)
+    if(gd&&retestInfo&&londonBias.dir!=='NEUTRAL'){
+      const rsiNeutral=gd.rsi>=40&&gd.rsi<=60;
+      const ema200ok=gd.price>gd.ema200&&goldTrend.trend!=='BAJISTA'||gd.price<gd.ema200&&goldTrend.trend!=='ALCISTA';
+      const nearEMA200=Math.abs(gd.price-gd.ema200)<gd.atr*0.5;
+      const retestLong=londonBias.dir==='ALCISTA'&&retestInfo.nearLevel&&rsiNeutral&&goldTrend.trend!=='BAJISTA'&&!nearEMA200;
+      const retestShort=londonBias.dir==='BAJISTA'&&retestInfo.nearLevel&&rsiNeutral&&goldTrend.trend!=='ALCISTA'&&!nearEMA200;
+      if(retestLong){
+        checkAndAlert('operate',score);
+        return{type:'operate',icon:'✅',label:'OPERAR',strategy:'NY RETEST LARGO — GOLD 🎯',
+          detail:`GOLD retestea ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. Precio sobre EMA200 ✅. RSI ${gd.rsi} neutral. Score: ${score}/6. Confirma rebote en XTB.`,
+          action:`LARGO GOLD si rebota en ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | Lotes: 0.01`,
+          levels:[{l:'NIVEL',v:(fixedRetestLevel||retestInfo.level).toFixed(1),c:'var(--gold)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+      if(retestShort){
+        checkAndAlert('operate',score);
+        return{type:'operate',icon:'✅',label:'OPERAR',strategy:'NY RETEST CORTO — GOLD 🎯',
+          detail:`GOLD retestea ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. Precio bajo EMA200 ✅. RSI ${gd.rsi} neutral. Score: ${score}/6. Confirma rebote en XTB.`,
+          action:`CORTO GOLD si rebota en ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. SL: ${gd.sl.toFixed(2)} | TP1: ${gd.tp1.toFixed(2)} | Lotes: 0.01`,
+          levels:[{l:'NIVEL',v:(fixedRetestLevel||retestInfo.level).toFixed(1),c:'var(--gold)'},{l:'SL',v:gd.sl.toFixed(2),c:'var(--red)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+      if(retestInfo.nearLevel){
+        checkAndAlert('watch',score);
+        return{type:'watch',icon:'👁',label:'VIGILAR',strategy:'NY RETEST GOLD — CERCA 🎯',
+          detail:`GOLD se acerca al nivel ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. Score: ${score}/6. EMA200: ${gd.ema200.toFixed(1)}.`,
+          action:`Crea alerta TV en ${(fixedRetestAlert||retestInfo.alertLevel).toFixed(1)}. Solo ${londonBias.dir==='ALCISTA'?'LARGO':'CORTO'} si rebota.`,
+          levels:[{l:'NIVEL',v:(fixedRetestLevel||retestInfo.level).toFixed(1),c:'var(--gold)'},{l:'ALERTA TV',v:(fixedRetestAlert||retestInfo.alertLevel).toFixed(1),c:'var(--cyan)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=4?'var(--gold)':'var(--red)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+    }
+
+    // Esperando señal
+    checkAndAlert('wait',score);
+    return{type:'wait',icon:'⏳',label:'ESPERAR SEÑAL',strategy:`VENTANA ACTIVA — QUEDAN ${fmtMin(minsLeft)}`,
+      detail:gd&&ud?`⭐ Ventana activa. US100 ORB: ${orbUS.high?.toFixed(0)||'—'}/${orbUS.low?.toFixed(0)||'—'} | GOLD: ${goldTrend.emoji} ${goldTrend.trend} | EMA200: ${gd.ema200.toFixed(1)} | Score actual: ${score}/6`:
+      'Esperando datos...',
+      action:`US100: vela M5 fuera del rango. GOLD: ${fixedRetestLevel?'retesteo en '+fixedRetestLevel.toFixed(1):'ORB o retesteo'}.`,
+      levels:gd&&ud?[
+        {l:'US100 ORB',v:`${orbUS.high?.toFixed(0)||'—'}/${orbUS.low?.toFixed(0)||'—'}`,c:'var(--cyan)'},
+        {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+        {l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},
+        {l:'SCORE',v:score+'/6',c:score>=4?'var(--gold)':'var(--muted)'}
+      ]:null,color:'var(--gold)',score:{score,conditions}};}
+
+  // 11:00–12:00 ZONA MARGINAL
+  if(bm>=11*60&&bh<12){
+    if(gd&&retestInfo&&londonBias.dir!=='NEUTRAL'){
+      const muyNear=Math.abs(gd.price-(fixedRetestLevel||retestInfo.level))<gd.atr*0.5;
+      const nearEMA200=Math.abs(gd.price-gd.ema200)<gd.atr*0.5;
+      if(muyNear&&gd.rsi>=40&&gd.rsi<=60&&!nearEMA200&&score>=4)
+        return{type:'watch',icon:'👁',label:'SETUP MARGINAL',strategy:'NY RETEST GOLD — LÍMITE',
+          detail:`GOLD en nivel ${(fixedRetestLevel||retestInfo.level).toFixed(1)}. Score: ${score}/6. EMA200: ${gd.ema200.toFixed(1)}.`,
+          action:`Solo entrar si rebote muy claro Y score ≥ 5. SL: ${gd.sl.toFixed(2)}.`,
+          levels:[{l:'NIVEL',v:(fixedRetestLevel||retestInfo.level).toFixed(1),c:'var(--gold)'},{l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--cyan)'},{l:'SCORE',v:score+'/6',c:score>=5?'var(--green)':'var(--gold)'}],
+          color:'var(--gold)',score:{score,conditions}};}
+    return{type:'no',icon:'🚫',label:'NO OPERAR',strategy:'VENTANA CERRADA',
+      detail:'Las 11:00 Bolivia cierra la ventana de oro.',
+      action:'Operativa terminada. Gestiona SL si tienes posición. Prepara análisis a las 21:00.',
+      levels:null,color:'var(--red)',score:null};}
+
+  // 12:00–21:00 FUERA DE VENTANA
+  if(bh>=12&&bh<21)return{type:'no',icon:'🚫',label:'NO OPERAR',strategy:'FUERA DE TU VENTANA',
+    detail:`${bh<17?'NY activa pero fuera de tu ventana (09:45–11:00).':'NY cerrando. Liquidez muy baja.'}`,
+    action:bh>=16?'Cierra posiciones antes de las 17:00 Bolivia.':'Revisa tu operativa de hoy. Prepara análisis a las 21:00.',
+    levels:null,color:'var(--red)',score:null};
+
+  // 21:00–23:00 PREPARACIÓN
+  const asiaRangePrep=gd?getAsiaRange(gd):null;
+  return{type:'prep',icon:'📋',label:'PREPARACIÓN',strategy:'ANÁLISIS PARA MAÑANA',
+    detail:gd?`GOLD: ${gd.price} | ${goldTrend.emoji} ${goldTrend.trend} | EMA50: ${gd.ema50.toFixed(0)} | EMA200: ${gd.ema200.toFixed(0)}${asiaRangePrep?.valid?` | Asia MAX: ${asiaRangePrep.high.toFixed(1)} / MIN: ${asiaRangePrep.low.toFixed(1)}`:''}`:
+    'Configura alertas en XTB para mañana.',
+    action:gd?`Marca en TradingView el MAX y MIN del rango Asia (20:00–05:00 Bolivia). A las 08:00 verás si Londres rompió ese nivel.`:'Configura alertas en XTB.',
+    levels:gd?[
+      {l:`GOLD ${goldTrend.emoji}`,v:goldTrend.trend,c:goldTrend.color},
+      {l:'ASIA MAX',v:asiaRangePrep?.high?.toFixed(1)||'—',c:'var(--cyan)'},
+      {l:'ASIA MIN',v:asiaRangePrep?.low?.toFixed(1)||'—',c:'var(--cyan)'},
+      {l:'EMA200',v:gd.ema200.toFixed(1),c:'var(--gold)'}
+    ]:null,color:'var(--muted)',score:null};
+}
 
   // 08:00–09:29 PRE-NY
   if(bh>=8&&bm<9*60+30){
@@ -958,12 +1364,14 @@ function updateVerdict(){
     const strMap={operate:'vs-operate',wait:'vs-wait',watch:'vs-watch',no:'vs-no',prep:'vs-prep'};
     el.className='verdict-card '+(typeMap[v.type]||'v-loading');
     const actionColor=v.type==='operate'?'rgba(0,227,150,0.15)':v.type==='no'?'rgba(255,69,96,0.1)':'rgba(245,200,66,0.08)';
+    const scoreHTML=v.score?getScoreHTML(v.score.score,v.score.conditions,6):'';
     el.innerHTML=`
       <div class="verdict-top">
         <div class="verdict-label ${lblMap[v.type]||''}">${v.icon} ${v.label}</div>
         <div class="verdict-strategy ${strMap[v.type]||''}">${v.strategy}</div>
       </div>
       <div class="verdict-detail">${v.detail}</div>
+      ${scoreHTML}
       ${v.levels?`<div class="verdict-levels">${v.levels.map(lv=>`
         <div class="vl-item">
           <div class="vl-item-label">${lv.l}</div>
